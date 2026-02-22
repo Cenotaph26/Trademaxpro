@@ -28,6 +28,7 @@ from api.webhook import router as webhook_router
 from api.execution import router as execution_router
 from signal_engine import AutoSignalEngine
 from utils.logger import setup_logger
+from utils import telegram as tg
 
 logger = setup_logger(__name__)
 
@@ -100,6 +101,16 @@ async def lifespan(app: FastAPI):
     app.state.signal_engine    = signal_engine
 
     logger.info("✅ Bot hazır!")
+
+    # Telegram başlat
+    if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID:
+        tg.init_telegram(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
+        try:
+            bal = await data_client.get_balance()
+            asyncio.create_task(tg.notify_startup(bal.get("total", 0)))
+        except Exception:
+            asyncio.create_task(tg.notify_startup(0))
+
     yield
 
     logger.info("🛑 Bot kapatılıyor...")
@@ -295,6 +306,40 @@ async def status_agent(request: Request):
         enabled = bool(body.get("enabled", True))
         se      = request.app.state.signal_engine
 
+        # Ajan ayarlarını güncelle
+        agent_settings = body.get("settings", {})
+        if agent_settings:
+            re = request.app.state.risk_engine
+            rl = request.app.state.rl_agent
+            # Risk parametrelerini güncelle
+            if "daily_max_loss_pct" in agent_settings:
+                re.s.DAILY_MAX_LOSS_PCT = float(agent_settings["daily_max_loss_pct"])
+            if "max_drawdown_pct" in agent_settings:
+                re.s.MAX_DRAWDOWN_PCT = float(agent_settings["max_drawdown_pct"])
+            if "risk_per_trade_pct" in agent_settings:
+                re.s.RISK_PER_TRADE_PCT = float(agent_settings["risk_per_trade_pct"])
+            if "max_positions" in agent_settings:
+                re.s.MAX_OPEN_POSITIONS = int(agent_settings["max_positions"])
+            if "kill_switch_consecutive_loss" in agent_settings:
+                re.s.KILL_SWITCH_CONSECUTIVE_LOSS = int(agent_settings["kill_switch_consecutive_loss"])
+            # RL parametrelerini güncelle
+            if rl and "rl_epsilon" in agent_settings:
+                rl.epsilon = float(agent_settings["rl_epsilon"])
+            # Sinyal motoru parametrelerini güncelle
+            if "scan_interval_min" in agent_settings and hasattr(se, "scan_interval_min"):
+                se.scan_interval_min = int(agent_settings["scan_interval_min"])
+            if "min_signal_score" in agent_settings and hasattr(se, "min_signal_score"):
+                se.min_signal_score = float(agent_settings["min_signal_score"])
+            logger.info(f"⚙️ Ajan ayarları güncellendi: {agent_settings}")
+
+        # Kill switch
+        if body.get("kill_switch") is True:
+            from risk.engine import KillSwitchReason
+            request.app.state.risk_engine.activate_kill_switch(KillSwitchReason.MANUAL)
+            asyncio.create_task(tg.notify_kill_switch("Manuel — Dashboard"))
+        elif body.get("kill_switch") is False:
+            request.app.state.risk_engine.deactivate_kill_switch()
+
         if enabled:
             if not getattr(se, "_running", False):
                 se._running = True
@@ -308,6 +353,51 @@ async def status_agent(request: Request):
         return {"ok": True, "running": enabled, "message": msg}
     except Exception as e:
         return {"ok": False, "reason": str(e)}
+
+
+@app.get("/execution/positions/live")
+async def live_positions(request: Request):
+    """Binance'den canlı pozisyonları çeker."""
+    try:
+        dc = request.app.state.data_client
+        if not dc.exchange or not dc._auth_ok:
+            return {"ok": False, "reason": "Binance bağlı değil", "positions": []}
+        raw = await dc.exchange.fetch_positions()
+        positions = []
+        for p in raw:
+            contracts = float(p.get("contracts") or p.get("info", {}).get("positionAmt") or 0)
+            if abs(contracts) < 1e-9:
+                continue
+            notional = float(p.get("notional") or p.get("info", {}).get("notional") or 0)
+            entry  = float(p.get("entryPrice") or p.get("info", {}).get("entryPrice") or 0)
+            mark   = float(p.get("markPrice")  or p.get("info", {}).get("markPrice")  or 0)
+            upnl   = float(p.get("unrealizedPnl") or p.get("info", {}).get("unRealizedProfit") or 0)
+            lev    = int(float(p.get("leverage") or p.get("info", {}).get("leverage") or 1))
+            liq    = float(p.get("liquidationPrice") or p.get("info", {}).get("liquidationPrice") or 0)
+            margin = float(p.get("initialMargin") or p.get("info", {}).get("isolatedMargin") or abs(notional / lev) if lev else 0)
+            side   = "LONG" if contracts > 0 else "SHORT"
+            sym    = p.get("symbol") or ""
+            if entry > 0 and mark > 0:
+                pnl_pct = ((mark - entry) / entry * 100 * lev) if side == "LONG" else ((entry - mark) / entry * 100 * lev)
+            else:
+                pnl_pct = 0.0
+            positions.append({
+                "symbol": sym,
+                "side": side,
+                "contracts": abs(contracts),
+                "notional": abs(notional),
+                "entry_price": entry,
+                "mark_price": mark,
+                "unrealized_pnl": upnl,
+                "pnl_pct": round(pnl_pct, 2),
+                "leverage": lev,
+                "liquidation_price": liq,
+                "margin": abs(margin),
+            })
+        return {"ok": True, "positions": positions, "count": len(positions)}
+    except Exception as e:
+        logger.error(f"live_positions hatası: {e}", exc_info=True)
+        return {"ok": False, "reason": str(e), "positions": []}
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ from strategies.dca import DCAStrategy, DCAParams
 from strategies.grid import GridStrategy, GridParams
 from strategies.smarttrade import SmartTradeStrategy, SmartTradeParams
 from risk.engine import RiskMode, TradeRecord
+from utils import telegram as tg
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,23 @@ class StrategyManager:
 
         # Pozisyon sayılarını güncelle
         await self._update_position_counts(symbol)
+
+        # Telegram bildirimi
+        if result is not None:
+            try:
+                mark = state.mark_price
+                qty_val = float(signal.get("quantity", 100))
+                sl_pct = float(signal.get("sl_pct", self.s.RISK_PER_TRADE_PCT))
+                tp_pct = float(signal.get("tp_pct", sl_pct * 2))
+                sl_price = mark * (1 - sl_pct / 100) if side == "BUY" else mark * (1 + sl_pct / 100)
+                tp_price = mark * (1 + tp_pct / 100) if side == "BUY" else mark * (1 - tp_pct / 100)
+                asyncio.create_task(tg.notify_trade_open(
+                    symbol=symbol, side=side, qty=qty_val,
+                    leverage=actual_leverage, entry=mark,
+                    sl=sl_price, tp=tp_price, strategy=strategy,
+                ))
+            except Exception as e:
+                logger.warning(f"Telegram bildirimi gönderilemedi: {e}")
 
         return {
             "ok": result is not None,
