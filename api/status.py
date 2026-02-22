@@ -47,10 +47,33 @@ def _build_status(app):
     }
 
 
+@router.get("")
 @router.get("/")
 async def get_status(request: Request):
     """Bot sağlık durumu ve özet istatistikler."""
     return _build_status(request.app)
+
+
+@router.get("/markets")
+async def get_markets(request: Request):
+    """Futures piyasalarını listele."""
+    data = request.app.state.data_client
+    try:
+        exchange = data.exchange
+        # Zaten yüklüyse tekrar çekme
+        if not exchange.markets:
+            await exchange.load_markets()
+        futures = [
+            {"symbol": s, "base": m.get("base", ""), "quote": m.get("quote", "")}
+            for s, m in exchange.markets.items()
+            if m.get("quote") == "USDT" and m.get("active", True)
+        ]
+        futures.sort(key=lambda x: x["symbol"])
+        return {"markets": futures}
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Markets hatası: {e}")
+        return {"markets": []}
 
 
 @router.websocket("/ws")
