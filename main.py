@@ -159,6 +159,8 @@ def _positions_safe(re) -> list:
 
 @app.get("/status")
 @app.get("/status/")
+@app.get("/status/health")
+@app.get("/health")
 async def status_health():
     return {"status": "ok", "service": "trademaxpro"}
 
