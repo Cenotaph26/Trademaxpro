@@ -22,6 +22,7 @@ from rl_agent.agent import RLAgent
 from api.webhook import router as webhook_router
 from api.status import router as status_router
 from api.execution import router as execution_router
+from signal_engine import AutoSignalEngine
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -59,16 +60,23 @@ async def lifespan(app: FastAPI):
 
     strategy_manager.set_rl_agent(rl_agent)
 
+    # Otomatik sinyal motoru
+    signal_engine = AutoSignalEngine(
+        data_client, strategy_manager, risk_engine, rl_agent, settings
+    )
+
     # Background tasks
     asyncio.create_task(data_client.stream_market_data())
     asyncio.create_task(risk_engine.monitor_loop())
     asyncio.create_task(rl_agent.learning_loop())
+    asyncio.create_task(signal_engine.start())
 
     # Share with routers
     app.state.data_client = data_client
     app.state.risk_engine = risk_engine
     app.state.strategy_manager = strategy_manager
     app.state.rl_agent = rl_agent
+    app.state.signal_engine = signal_engine
 
     logger.info("✅ Bot hazır!")
     yield
