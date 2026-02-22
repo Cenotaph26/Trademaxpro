@@ -21,6 +21,7 @@ from strategies.manager import StrategyManager
 from rl_agent.agent import RLAgent
 from api.webhook import router as webhook_router
 from api.status import router as status_router
+from api.execution import router as execution_router
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -100,6 +101,7 @@ app.add_middleware(
 
 app.include_router(webhook_router, prefix="/webhook")
 app.include_router(status_router, prefix="/status")
+app.include_router(execution_router, prefix="/execution")
 
 
 @app.get("/")
