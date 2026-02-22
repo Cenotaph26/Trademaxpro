@@ -1,16 +1,16 @@
 """
 Status & monitoring endpoints.
 """
-from fastapi import APIRouter, Request, HTTPException
+import asyncio
+import json
+from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect
 from datetime import datetime
 
 router = APIRouter()
 
 
-@router.get("/")
-async def get_status(request: Request):
-    """Bot sağlık durumu ve özet istatistikler."""
-    app = request.app
+def _build_status(app):
+    """Bot durumunu dict olarak döndür."""
     risk = app.state.risk_engine
     data = app.state.data_client
     rl = app.state.rl_agent
@@ -45,6 +45,28 @@ async def get_status(request: Request):
         "performance": stats,
         "rl_agent": rl.get_status() if rl else None,
     }
+
+
+@router.get("/")
+async def get_status(request: Request):
+    """Bot sağlık durumu ve özet istatistikler."""
+    return _build_status(request.app)
+
+
+@router.websocket("/ws")
+async def websocket_status(websocket: WebSocket):
+    """Gerçek zamanlı durum akışı — her 2 saniyede bir güncellenir."""
+    await websocket.accept()
+    try:
+        while True:
+            try:
+                data = _build_status(websocket.app)
+                await websocket.send_text(json.dumps(data))
+            except Exception as e:
+                await websocket.send_text(json.dumps({"error": str(e)}))
+            await asyncio.sleep(2)
+    except WebSocketDisconnect:
+        pass
 
 
 @router.get("/positions")
