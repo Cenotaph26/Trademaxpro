@@ -1,136 +1,119 @@
 """
-Manuel işlem execution endpoint'leri.
-POST /execution/open  — pozisyon aç
-POST /execution/close — pozisyon kapat
+api/execution.py — İşlem açma/kapatma endpoint'leri
+DÜZELTME: Hata mesajları artık string olarak döndürülüyor (frontend [object Object] hatası çözüldü)
 """
 import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-logger = logging.getLogger(__name__)
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
-class OpenRequest(BaseModel):
+class TradeRequest(BaseModel):
     symbol: str
-    side: str          # BUY veya SELL
-    amount: float      # USDT cinsinden
-    leverage: int = 3
-    order_type: str = "market"
-    sl_pct: Optional[float] = None
-    tp_pct: Optional[float] = None
+    side: str                    # "BUY" | "SELL"
+    quantity: Optional[float] = None
+    leverage: Optional[int] = 3
+    order_type: Optional[str] = "MARKET"
+    sl_pct: Optional[float] = 1.5
+    tp_pct: Optional[float] = 3.0
+    strategy_tag: Optional[str] = "manual"
 
 
 class CloseRequest(BaseModel):
     symbol: str
+    side: Optional[str] = None   # None = tümünü kapat
+
+
+def _safe_error(e: Exception) -> str:
+    """Exception'ı güvenli string'e çevir — [object Object] hatasını önler."""
+    return str(e) if str(e) else type(e).__name__
 
 
 @router.post("/open")
-async def open_position(req: OpenRequest, request: Request):
-    """Manuel pozisyon aç."""
-    app = request.app
-    data = app.state.data_client
-    risk = app.state.risk_engine
-
-    if risk.state.kill_switch_active:
-        raise HTTPException(status_code=403, detail="Kill switch aktif, işlem yapılamaz")
+async def open_trade(request: Request, body: TradeRequest):
+    """Manuel işlem açma endpoint'i."""
+    strategy_manager = request.app.state.strategy_manager
+    risk_engine = request.app.state.risk_engine
 
     try:
-        # Kaldıraç ayarla
-        await data.exchange.set_leverage(req.leverage, req.symbol)
-
-        # Mevcut fiyatı al
-        ticker = await data.exchange.fetch_ticker(req.symbol)
-        mark_price = float(ticker.get("last") or ticker.get("close", 0))
-        if not mark_price:
-            raise HTTPException(status_code=500, detail="Fiyat alınamadı")
-
-        # Miktar hesapla (USDT → coin)
-        quantity = round(req.amount * req.leverage / mark_price, 4)
-
-        params = {}
-        raw = await data.exchange.create_order(
-            symbol=req.symbol,
-            type=req.order_type,
-            side=req.side,
-            amount=quantity,
-            params=params,
+        # Risk kontrolü
+        risk_ok, risk_reason = await risk_engine.check_new_trade(
+            symbol=body.symbol,
+            side=body.side,
+            leverage=body.leverage,
         )
+        if not risk_ok:
+            return {
+                "ok": False,
+                "reason": str(risk_reason),   # ← string garantisi
+                "symbol": body.symbol,
+            }
 
-        avg_price = float(raw.get("average") or raw.get("price") or mark_price)
+        # İşlem gönder
+        signal_payload = {
+            "symbol": body.symbol,
+            "side": body.side,
+            "strategy_tag": body.strategy_tag,
+            "leverage": body.leverage,
+            "order_type": body.order_type,
+            "sl_pct": body.sl_pct,
+            "tp_pct": body.tp_pct,
+        }
+        if body.quantity:
+            signal_payload["quantity"] = body.quantity
 
-        # SL/TP emirleri
-        close_side = "SELL" if req.side == "BUY" else "BUY"
+        result = await strategy_manager.handle_signal(signal_payload)
 
-        if req.sl_pct:
-            sl_price = avg_price * (1 - req.sl_pct / 100) if req.side == "BUY" else avg_price * (1 + req.sl_pct / 100)
-            sl_price = round(sl_price, 2)
-            try:
-                await data.exchange.create_order(
-                    symbol=req.symbol,
-                    type="stop_market",
-                    side=close_side,
-                    amount=quantity,
-                    params={"stopPrice": sl_price, "reduceOnly": True},
-                )
-            except Exception as e:
-                logger.warning(f"SL emri gönderilemedi: {e}")
+        # result her zaman dict dön, string değil
+        if isinstance(result, dict):
+            return result
+        return {"ok": bool(result), "raw": str(result)}
 
-        if req.tp_pct:
-            tp_price = avg_price * (1 + req.tp_pct / 100) if req.side == "BUY" else avg_price * (1 - req.tp_pct / 100)
-            tp_price = round(tp_price, 2)
-            try:
-                await data.exchange.create_order(
-                    symbol=req.symbol,
-                    type="take_profit_market",
-                    side=close_side,
-                    amount=quantity,
-                    params={"stopPrice": tp_price, "reduceOnly": True},
-                )
-            except Exception as e:
-                logger.warning(f"TP emri gönderilemedi: {e}")
-
-        logger.info(f"✅ Manuel {req.side} {quantity} {req.symbol} @ {avg_price}")
-        return {"ok": True, "avg_price": avg_price, "quantity": quantity, "order_id": raw.get("id")}
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Manuel işlem hatası: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"open_trade hatası: {e}", exc_info=True)
+        return {
+            "ok": False,
+            "reason": _safe_error(e),   # ← [object Object] yerine string
+        }
 
 
 @router.post("/close")
-async def close_position(req: CloseRequest, request: Request):
-    """Açık pozisyonu kapat."""
-    app = request.app
-    data = app.state.data_client
+async def close_trade(request: Request, body: CloseRequest):
+    """Pozisyon kapatma endpoint'i."""
+    strategy_manager = request.app.state.strategy_manager
 
     try:
-        positions = await data.exchange.fetch_positions([req.symbol])
-        pos = next((p for p in positions if p.get("symbol") == req.symbol and float(p.get("contracts", 0)) != 0), None)
+        if body.symbol == "ALL":
+            result = await strategy_manager.close_all_positions()
+        else:
+            result = await strategy_manager.close_position(body.symbol, body.side)
 
-        if not pos:
-            raise HTTPException(status_code=404, detail=f"{req.symbol} için açık pozisyon yok")
+        if isinstance(result, dict):
+            return result
+        return {"ok": bool(result), "symbol": body.symbol}
 
-        contracts = float(pos.get("contracts", 0))
-        side = pos.get("side", "long")
-        close_side = "SELL" if side == "long" else "BUY"
-
-        raw = await data.exchange.create_order(
-            symbol=req.symbol,
-            type="market",
-            side=close_side,
-            amount=abs(contracts),
-            params={"reduceOnly": True},
-        )
-
-        logger.info(f"✅ Pozisyon kapatıldı: {req.symbol}")
-        return {"ok": True, "order_id": raw.get("id")}
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Pozisyon kapatma hatası: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"close_trade hatası: {e}", exc_info=True)
+        return {
+            "ok": False,
+            "reason": _safe_error(e),
+        }
+
+
+@router.get("/positions")
+async def get_positions(request: Request):
+    """Açık pozisyonları listele."""
+    try:
+        risk_engine = request.app.state.risk_engine
+        positions = risk_engine.get_open_positions()
+        return {
+            "ok": True,
+            "positions": positions if isinstance(positions, list) else [],
+            "count": len(positions) if isinstance(positions, list) else 0,
+        }
+    except Exception as e:
+        logger.error(f"get_positions hatası: {e}", exc_info=True)
+        return {"ok": False, "reason": _safe_error(e), "positions": []}
