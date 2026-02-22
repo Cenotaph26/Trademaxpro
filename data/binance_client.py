@@ -54,12 +54,12 @@ class BinanceDataClient:
         if self.settings.BINANCE_TESTNET:
             params["urls"] = {
                 "api": {
-                    "fapiPublic":    "https://testnet.binancefuture.com/fapi/v1",
-                    "fapiPrivate":   "https://testnet.binancefuture.com/fapi/v1",
-                    "fapiPublicV2":  "https://testnet.binancefuture.com/fapi/v2",
-                    "fapiPrivateV2": "https://testnet.binancefuture.com/fapi/v2",
-                    "public":  "https://testnet.binancefuture.com/fapi/v1",
-                    "private": "https://testnet.binancefuture.com/fapi/v1",
+                    "fapiPublic":    "https://demo-fapi.binance.com/fapi/v1",
+                    "fapiPrivate":   "https://demo-fapi.binance.com/fapi/v1",
+                    "fapiPublicV2":  "https://demo-fapi.binance.com/fapi/v2",
+                    "fapiPrivateV2": "https://demo-fapi.binance.com/fapi/v2",
+                    "public":        "https://demo-fapi.binance.com/fapi/v1",
+                    "private":       "https://demo-fapi.binance.com/fapi/v1",
                 }
             }
 
