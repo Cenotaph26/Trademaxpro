@@ -753,6 +753,7 @@
       <div class="tab active" data-tab="overview">Genel Bakış</div>
       <div class="tab" data-tab="positions">Pozisyonlar</div>
       <div class="tab" data-tab="signals">Sinyaller</div>
+      <div class="tab" data-tab="control">⚙ Kontrol</div>
       <div class="tab" data-tab="logs">Loglar</div>
     </div>
 
@@ -831,6 +832,158 @@
       <div id="signals-content">
         <div class="empty-state"><div>📊</div>Sinyal bekleniyor...</div>
       </div>
+    </div>
+
+    <!-- CONTROL TAB -->
+    <div class="panel-content" id="tab-control">
+
+      <!-- İşlem Testi -->
+      <div class="card">
+        <div class="card-title">🧪 İşlem Testi
+          <span style="color:var(--yellow);font-size:9px">TESTNET</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div class="form-group">
+            <div class="form-label">Sembol</div>
+            <input type="text" id="test-symbol" value="BTCUSDT" placeholder="BTCUSDT" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">Yön</div>
+            <select id="test-side">
+              <option value="BUY">LONG ▲</option>
+              <option value="SELL">SHORT ▼</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+          <div class="form-group">
+            <div class="form-label">Miktar (USDT)</div>
+            <input type="number" id="test-qty" value="100" min="5" step="10" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">Kaldıraç</div>
+            <input type="number" id="test-lev" value="3" min="1" max="20" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">Emir Tipi</div>
+            <select id="test-order-type">
+              <option value="MARKET">Market</option>
+              <option value="LIMIT">Limit</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+          <div class="form-group">
+            <div class="form-label">Stop Loss %</div>
+            <input type="number" id="test-sl" value="1.5" min="0.1" max="10" step="0.1" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">Take Profit %</div>
+            <input type="number" id="test-tp" value="3.0" min="0.1" max="20" step="0.1" />
+          </div>
+        </div>
+        <div id="test-preview" style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.8">
+          Parametreleri doldurun...
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn-long" id="ctrl-btn-long" onclick="ctrlOpenTrade('BUY')" style="font-size:12px;padding:11px">
+            ▲ LONG AÇ
+          </button>
+          <button class="btn-short" id="ctrl-btn-short" onclick="ctrlOpenTrade('SELL')" style="font-size:12px;padding:11px">
+            ▼ SHORT AÇ
+          </button>
+        </div>
+        <button onclick="ctrlCloseAll()" style="width:100%;margin-top:8px;padding:10px;background:rgba(255,61,87,0.08);border:1px solid rgba(255,61,87,0.25);color:var(--red);font-family:var(--mono);font-size:11px;border-radius:6px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.background='rgba(255,61,87,0.18)'" onmouseout="this.style.background='rgba(255,61,87,0.08)'">
+          🛑 Tüm Pozisyonları Kapat
+        </button>
+        <div id="test-result" style="margin-top:10px;display:none"></div>
+      </div>
+
+      <!-- Ajan Kontrol Merkezi -->
+      <div class="card">
+        <div class="card-title">🤖 Otomatik Ajan Kontrol Merkezi</div>
+
+        <!-- Ajan ON/OFF + Durum -->
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px">
+          <div>
+            <div style="font-size:12px;color:#fff;font-weight:600">Ajan Durumu</div>
+            <div id="ctrl-agent-status-text" style="font-size:11px;color:var(--text3);margin-top:2px">Kontrol ediliyor...</div>
+          </div>
+          <label class="toggle-switch" style="width:46px;height:26px">
+            <input type="checkbox" id="ctrl-agent-toggle" onchange="ctrlToggleAgent(this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Ajan Parametreleri -->
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin-bottom:8px">Ajan Parametreleri</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div class="form-group">
+            <div class="form-label">Tarama Aralığı (dk)</div>
+            <input type="number" id="ctrl-scan-interval" value="15" min="1" max="60" step="1" oninput="ctrlUpdateAgentPreview()" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">RL Epsilon (0-1)</div>
+            <input type="number" id="ctrl-epsilon" value="0.15" min="0.01" max="1" step="0.01" oninput="ctrlUpdateAgentPreview()" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">Min Sinyal Skoru</div>
+            <input type="number" id="ctrl-min-score" value="0.3" min="0.1" max="1" step="0.05" oninput="ctrlUpdateAgentPreview()" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">Max Pozisyon</div>
+            <input type="number" id="ctrl-max-pos" value="3" min="1" max="10" step="1" oninput="ctrlUpdateAgentPreview()" />
+          </div>
+        </div>
+
+        <!-- Risk Parametreleri -->
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin-bottom:8px">Risk Parametreleri</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div class="form-group">
+            <div class="form-label">Günlük Max Kayıp %</div>
+            <input type="number" id="ctrl-daily-loss" value="2.0" min="0.5" max="20" step="0.5" oninput="ctrlUpdateAgentPreview()" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">Max Drawdown %</div>
+            <input type="number" id="ctrl-max-drawdown" value="5.0" min="1" max="30" step="0.5" oninput="ctrlUpdateAgentPreview()" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">Risk/İşlem %</div>
+            <input type="number" id="ctrl-risk-per-trade" value="1.0" min="0.1" max="10" step="0.1" oninput="ctrlUpdateAgentPreview()" />
+          </div>
+          <div class="form-group">
+            <div class="form-label">Ard. Max Kayıp</div>
+            <input type="number" id="ctrl-consec-loss" value="5" min="1" max="20" step="1" oninput="ctrlUpdateAgentPreview()" />
+          </div>
+        </div>
+
+        <!-- Önizleme -->
+        <div id="ctrl-agent-preview" style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.8">
+          –
+        </div>
+
+        <button onclick="ctrlApplyAgentSettings()" style="width:100%;padding:11px;background:rgba(0,188,212,0.12);border:1px solid rgba(0,188,212,0.3);color:var(--cyan);font-family:var(--sans);font-size:13px;font-weight:700;border-radius:6px;cursor:pointer;letter-spacing:0.05em;transition:all 0.15s" onmouseover="this.style.background='rgba(0,188,212,0.22)'" onmouseout="this.style.background='rgba(0,188,212,0.12)'">
+          💾 Ayarları Uygula
+        </button>
+      </div>
+
+      <!-- Kill Switch -->
+      <div class="card" style="border-color:rgba(255,61,87,0.3)">
+        <div class="card-title" style="color:var(--red)">⛔ Kill Switch</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:12px;line-height:1.6">
+          Kill switch aktifleşince bot tüm işlemleri durdurur ve yeni pozisyon açmaz. Manuel olarak devre dışı bırakılabilir.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button onclick="ctrlKillSwitch(true)" style="padding:10px;background:rgba(255,61,87,0.12);border:1px solid rgba(255,61,87,0.35);color:var(--red);font-family:var(--mono);font-size:11px;border-radius:6px;cursor:pointer;font-weight:700;transition:all 0.15s" onmouseover="this.style.background='rgba(255,61,87,0.25)'" onmouseout="this.style.background='rgba(255,61,87,0.12)'">
+            🔴 Aktifleştir
+          </button>
+          <button onclick="ctrlKillSwitch(false)" style="padding:10px;background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.25);color:var(--green);font-family:var(--mono);font-size:11px;border-radius:6px;cursor:pointer;font-weight:700;transition:all 0.15s" onmouseover="this.style.background='rgba(0,230,118,0.18)'" onmouseout="this.style.background='rgba(0,230,118,0.08)'">
+            🟢 Devre Dışı
+          </button>
+        </div>
+        <div id="kill-switch-status" style="margin-top:10px;text-align:center;font-size:11px;color:var(--text3)">–</div>
+      </div>
+
     </div>
 
     <!-- LOGS TAB -->
@@ -1136,6 +1289,14 @@ async function refreshStatus() {
       const agentStatusEl = document.getElementById("agent-status-val");
       agentStatusEl.textContent = se.running ? "Aktif" : "Pasif";
       agentStatusEl.style.color = se.running ? "var(--green)" : "var(--text3)";
+      // Kontrol paneli güncelle
+      const ctrlToggle = document.getElementById("ctrl-agent-toggle");
+      if (ctrlToggle) ctrlToggle.checked = se.running;
+      const ctrlStatusText = document.getElementById("ctrl-agent-status-text");
+      if (ctrlStatusText) {
+        ctrlStatusText.textContent = se.running ? "✅ Ajan çalışıyor" : "⏹ Ajan durduruldu";
+        ctrlStatusText.style.color = se.running ? "var(--green)" : "var(--text3)";
+      }
     }
 
     // RL agent
@@ -1498,7 +1659,191 @@ async function submitTrade(side) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  AGENT TOGGLE
+//  KONTROL PANELİ — İşlem Testi
+// ═══════════════════════════════════════════════════════════
+
+function ctrlUpdateTestPreview() {
+  const sym  = document.getElementById("test-symbol").value || "BTCUSDT";
+  const side = document.getElementById("test-side").value;
+  const qty  = parseFloat(document.getElementById("test-qty").value) || 100;
+  const lev  = parseFloat(document.getElementById("test-lev").value) || 3;
+  const sl   = parseFloat(document.getElementById("test-sl").value) || 1.5;
+  const tp   = parseFloat(document.getElementById("test-tp").value) || 3.0;
+  const maxGain = (qty * tp / 100).toFixed(2);
+  const maxLoss = (qty * sl / 100).toFixed(2);
+  const sideLabel = side === "BUY" ? "🟢 LONG" : "🔴 SHORT";
+  document.getElementById("test-preview").innerHTML =
+    `<span style="color:#fff">${sym}</span> ${sideLabel} &nbsp;|&nbsp; ` +
+    `Miktar: <span style="color:var(--cyan)">$${qty}</span> &nbsp;|&nbsp; ` +
+    `Kaldıraç: <span style="color:var(--yellow)">${lev}x</span><br>` +
+    `Max Kâr: <span style="color:var(--green)">+$${maxGain}</span> &nbsp;|&nbsp; ` +
+    `Max Kayıp: <span style="color:var(--red)">-$${maxLoss}</span> &nbsp;|&nbsp; ` +
+    `SL: ${sl}% / TP: ${tp}%`;
+}
+
+["test-symbol","test-side","test-qty","test-lev","test-sl","test-tp","test-order-type"].forEach(id => {
+  document.getElementById(id)?.addEventListener("input",  ctrlUpdateTestPreview);
+  document.getElementById(id)?.addEventListener("change", ctrlUpdateTestPreview);
+});
+
+async function ctrlOpenTrade(forceSide) {
+  const side   = forceSide || document.getElementById("test-side").value;
+  const symbol = document.getElementById("test-symbol").value.trim().toUpperCase() || "BTCUSDT";
+  const qty    = parseFloat(document.getElementById("test-qty").value) || 100;
+  const lev    = parseInt(document.getElementById("test-lev").value) || 3;
+  const tp     = parseFloat(document.getElementById("test-tp").value) || 3.0;
+  const sl     = parseFloat(document.getElementById("test-sl").value) || 1.5;
+  const otype  = document.getElementById("test-order-type").value;
+
+  const btnId = side === "BUY" ? "ctrl-btn-long" : "ctrl-btn-short";
+  const btn = document.getElementById(btnId);
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> İşleniyor...`;
+
+  const result = await apiFetch("/execution/open", {
+    method: "POST",
+    body: JSON.stringify({ symbol, side, quantity: qty, leverage: lev,
+      order_type: otype, sl_pct: sl, tp_pct: tp, strategy_tag: "manual_test" }),
+  });
+
+  btn.disabled = false; btn.innerHTML = orig;
+
+  const el = document.getElementById("test-result");
+  el.style.display = "block";
+  if (result.ok) {
+    el.style.cssText = "display:block;background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.3);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--green);margin-top:10px";
+    el.innerHTML = `✅ İşlem açıldı: <strong>${symbol}</strong> ${side === "BUY" ? "LONG" : "SHORT"} $${qty} — ${new Date().toLocaleTimeString("tr-TR")}`;
+    showToast(`✅ ${symbol} ${side === "BUY" ? "LONG" : "SHORT"} açıldı`, "success");
+    addLog(`TEST işlemi açıldı: ${symbol} ${side} $${qty} ${lev}x`, "ok");
+    await loadPositions(); await refreshStatus();
+  } else {
+    el.style.cssText = "display:block;background:rgba(255,61,87,0.08);border:1px solid rgba(255,61,87,0.3);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--red);margin-top:10px";
+    el.innerHTML = `❌ Hata: ${result.reason || "Bilinmeyen hata"}`;
+    addLog(`TEST işlemi reddedildi: ${result.reason}`, "error");
+  }
+}
+
+async function ctrlCloseAll() {
+  if (!confirm("Tüm açık pozisyonları kapatmak istediğinize emin misiniz?")) return;
+  const result = await apiFetch("/execution/close", {
+    method: "POST",
+    body: JSON.stringify({ symbol: "ALL" }),
+  });
+  if (result.ok) {
+    showToast("✅ Tüm pozisyonlar kapatıldı", "success");
+    addLog("Tüm pozisyonlar manuel kapatıldı", "warn");
+    await loadPositions(); await refreshStatus();
+  } else {
+    showToast("❌ Kapatma hatası: " + (result.reason || "?"), "error");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  KONTROL PANELİ — Ajan Ayarları
+// ═══════════════════════════════════════════════════════════
+
+function ctrlUpdateAgentPreview() {
+  const scan    = document.getElementById("ctrl-scan-interval").value;
+  const eps     = document.getElementById("ctrl-epsilon").value;
+  const minScore= document.getElementById("ctrl-min-score").value;
+  const maxPos  = document.getElementById("ctrl-max-pos").value;
+  const dayLoss = document.getElementById("ctrl-daily-loss").value;
+  const drawdown= document.getElementById("ctrl-max-drawdown").value;
+  const rpt     = document.getElementById("ctrl-risk-per-trade").value;
+  const conLoss = document.getElementById("ctrl-consec-loss").value;
+  document.getElementById("ctrl-agent-preview").innerHTML =
+    `Tarama: <span style="color:var(--cyan)">${scan} dk</span> &nbsp;|&nbsp; ` +
+    `Epsilon: <span style="color:var(--yellow)">${eps}</span> &nbsp;|&nbsp; ` +
+    `Min Skor: <span style="color:var(--cyan)">${minScore}</span><br>` +
+    `Max Poz: <span style="color:var(--cyan)">${maxPos}</span> &nbsp;|&nbsp; ` +
+    `Günlük Kayıp: <span style="color:var(--red)">${dayLoss}%</span> &nbsp;|&nbsp; ` +
+    `Drawdown: <span style="color:var(--red)">${drawdown}%</span><br>` +
+    `Risk/İşlem: <span style="color:var(--green)">${rpt}%</span> &nbsp;|&nbsp; ` +
+    `Ard. Kayıp: <span style="color:var(--yellow)">${conLoss}</span>`;
+}
+
+async function ctrlToggleAgent(enabled) {
+  const result = await apiFetch("/status/agent", {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+  const statusEl = document.getElementById("ctrl-agent-status-text");
+  if (result.ok !== false) {
+    state.agentRunning = enabled;
+    statusEl.textContent = enabled ? "✅ Ajan çalışıyor" : "⏹ Ajan durduruldu";
+    statusEl.style.color = enabled ? "var(--green)" : "var(--text3)";
+    // Ana panel toggle da güncelle
+    const mainToggle = document.getElementById("agent-toggle");
+    if (mainToggle) mainToggle.checked = enabled;
+    showToast(enabled ? "🤖 Ajan aktifleştirildi" : "⏹ Ajan durduruldu", enabled ? "success" : "info");
+    addLog(enabled ? "Ajan başlatıldı (kontrol panelinden)" : "Ajan durduruldu (kontrol panelinden)", enabled ? "ok" : "warn");
+  }
+}
+
+async function ctrlApplyAgentSettings() {
+  const settings = {
+    scan_interval_min: parseInt(document.getElementById("ctrl-scan-interval").value),
+    rl_epsilon:        parseFloat(document.getElementById("ctrl-epsilon").value),
+    min_signal_score:  parseFloat(document.getElementById("ctrl-min-score").value),
+    max_positions:     parseInt(document.getElementById("ctrl-max-pos").value),
+    daily_max_loss_pct:parseFloat(document.getElementById("ctrl-daily-loss").value),
+    max_drawdown_pct:  parseFloat(document.getElementById("ctrl-max-drawdown").value),
+    risk_per_trade_pct:parseFloat(document.getElementById("ctrl-risk-per-trade").value),
+    kill_switch_consecutive_loss: parseInt(document.getElementById("ctrl-consec-loss").value),
+  };
+
+  // /status/agent endpoint'ine settings gönder
+  const result = await apiFetch("/status/agent", {
+    method: "POST",
+    body: JSON.stringify({ enabled: state.agentRunning, settings }),
+  });
+
+  if (result.ok !== false) {
+    showToast("💾 Ajan ayarları uygulandı", "success");
+    addLog(`Ajan ayarları güncellendi: scan=${settings.scan_interval_min}dk eps=${settings.rl_epsilon}`, "ok");
+  } else {
+    showToast("⚠ Ayarlar uygulanamadı: " + (result.reason || "?"), "warn");
+  }
+}
+
+async function ctrlKillSwitch(activate) {
+  const action = activate ? "aktifleştir" : "devre dışı bırak";
+  if (!confirm(`Kill switch'i ${action}mak istediğinize emin misiniz?`)) return;
+
+  const result = await apiFetch("/status/agent", {
+    method: "POST",
+    body: JSON.stringify({ enabled: !activate, kill_switch: activate }),
+  });
+
+  const el = document.getElementById("kill-switch-status");
+  if (activate) {
+    el.style.color = "var(--red)";
+    el.textContent = "🔴 Kill Switch AKTİF — Bot tüm işlemleri durdurdu";
+    showToast("🔴 Kill Switch aktifleştirildi!", "error");
+    addLog("KILL SWITCH AKTİF — tüm işlemler durduruldu", "error");
+    // Ajan toggle'ı kapat
+    document.getElementById("ctrl-agent-toggle").checked = false;
+    document.getElementById("ctrl-agent-status-text").textContent = "🔴 Kill switch aktif";
+    document.getElementById("ctrl-agent-status-text").style.color = "var(--red)";
+  } else {
+    el.style.color = "var(--green)";
+    el.textContent = "🟢 Kill Switch devre dışı — Bot normal çalışmaya devam edebilir";
+    showToast("🟢 Kill Switch devre dışı bırakıldı", "success");
+    addLog("Kill switch devre dışı bırakıldı (manuel)", "warn");
+  }
+}
+
+// Kontrol sekmesi açıldığında preview güncelle
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    if (tab.dataset.tab === "control") {
+      ctrlUpdateTestPreview();
+      ctrlUpdateAgentPreview();
+    }
+  });
+});
+
+// AGENT TOGGLE
 // ═══════════════════════════════════════════════════════════
 
 async function toggleAgent(enabled) {
