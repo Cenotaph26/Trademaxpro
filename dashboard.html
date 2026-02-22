@@ -515,43 +515,50 @@ tbody tr:hover td{background:rgba(0,212,255,.03);}
 <div class="toast" id="toast"></div>
 
 <script>
-let ws = null;
 let allMarkets = [];
 let selectedSide = 'BUY';
 let pendingStopSymbol = null;
 let pendingTrade = null;
 
 // ── WebSocket ──────────────────────────────────────────
-function getBase() { return document.getElementById('apiUrl').value.replace(/\/$/,''); }
-function getWsUrl() { return getBase().replace(/^https/,'wss').replace(/^http/,'ws') + '/status/ws'; }
+function getBase() { return document.getElementById('apiUrl').value.replace(/\/$/, ''); }
 
-function connect() {
-  if (ws) { ws.close(); ws = null; }
+let pollInterval = null;
+
+async function connect() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   setWsState('connecting');
-  ws = new WebSocket(getWsUrl());
 
-  ws.onopen = () => {
+  try {
+    const r = await fetch(getBase() + '/status/health');
+    if (!r.ok) throw new Error('health check failed');
     setWsState('live');
     toast('✓ Bağlandı', 'ok');
     fetchBalance();
     fetchMarkets();
-  };
-
-  ws.onmessage = (e) => {
-    try {
-      const d = JSON.parse(e.data);
-      if (d.ping) return;
-      updateDashboard(d);
-    } catch {}
-  };
-
-  ws.onclose = () => {
+  } catch (e) {
     setWsState('dead');
-    // 5 saniye sonra tekrar dene
-    setTimeout(() => { if (document.getElementById('apiUrl').value) connect(); }, 5000);
-  };
+    toast('✗ Bağlanamadı', 'err');
+    return;
+  }
 
-  ws.onerror = () => setWsState('dead');
+  async function poll() {
+    try {
+      const r = await fetch(getBase() + '/status');
+      if (!r.ok) throw new Error('status failed');
+      const d = await r.json();
+      updateDashboard(d);
+      setWsState('live');
+    } catch {
+      setWsState('dead');
+      clearInterval(pollInterval);
+      pollInterval = null;
+      setTimeout(() => { if (document.getElementById('apiUrl').value) connect(); }, 5000);
+    }
+  }
+
+  await poll();
+  pollInterval = setInterval(poll, 2000);
 }
 
 function setWsState(state) {
