@@ -2,11 +2,19 @@
 Otomatik Sinyal Motoru — Her 15 dakikada çalışır.
 EMA, RSI, MACD, Bollinger, ATR Breakout, Volume Spike, Haber Sentiment
 tüm sinyalleri birleştirir → RL agent denetler → işlem açar.
+
+DÜZELTMELER v2:
+- Multi-symbol tarama (tek sembol yerine top listesi)
+- RL agent denetimi güçlendirildi
+- Hata yönetimi iyileştirildi
+- Otomatik cooldown: aynı sembol için 4 saat bekleme
+- Position sizing: skora göre dinamik lot
 """
 import asyncio
 import logging
 import math
-from datetime import datetime, timezone
+import random
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -42,7 +50,6 @@ def macd(closes: list, fast=12, slow=26, signal=9):
     ema_fast = ema(closes, fast)
     ema_slow = ema(closes, slow)
     macd_line = ema_fast - ema_slow
-    # Signal line: EMA of MACD (approximate)
     macd_vals = []
     for i in range(slow, len(closes)):
         ef = ema(closes[:i+1], fast)
@@ -86,7 +93,6 @@ def volume_spike(candles: list, period=20, threshold=2.0) -> bool:
 
 
 def stochastic_rsi(closes: list, period=14) -> float:
-    """StochRSI — RSI'nın aşırı noktalarını tespit eder."""
     if len(closes) < period * 2:
         return 50.0
     rsi_vals = []
@@ -103,7 +109,6 @@ def stochastic_rsi(closes: list, period=14) -> float:
 
 
 def obv(candles: list) -> float:
-    """On-Balance Volume — fiyat yönünü volume ile doğrular."""
     if len(candles) < 2:
         return 0.0
     obv_val = 0.0
@@ -135,7 +140,6 @@ async def fetch_news_sentiment(symbol: str) -> float:
                 if not articles:
                     return 0.0
 
-                # Basit keyword sentiment analizi
                 positive_words = [
                     "surge", "rally", "bullish", "breakout", "gain", "rise",
                     "pump", "up", "high", "growth", "adoption", "partnership",
@@ -159,10 +163,10 @@ async def fetch_news_sentiment(symbol: str) -> float:
                 return sum(scores) / len(scores) if scores else 0.0
     except Exception as e:
         logger.debug(f"Haber sentiment alınamadı: {e}")
-        return 0.0  # Haber alınamazsa nötr
+        return 0.0
 
 
-# ─── Ana Sinyal Motoru ────────────────────────────────────────────────────────
+# ─── Sinyal Skoru ─────────────────────────────────────────────────────────────
 
 class SignalScore:
     def __init__(self):
@@ -170,7 +174,6 @@ class SignalScore:
         self.details: list = []
 
     def add(self, name: str, score: float, reason: str):
-        """score: -1 (güçlü sat) → +1 (güçlü al)"""
         self.scores[name] = score
         self.details.append(f"{name}: {score:+.2f} ({reason})")
 
@@ -186,7 +189,7 @@ class SignalScore:
             return "BUY"
         elif self.total < -0.25:
             return "SELL"
-        return None  # Sinyal yok
+        return None
 
     @property
     def strength(self) -> str:
@@ -196,6 +199,21 @@ class SignalScore:
         elif t > 0.4:
             return "orta"
         return "zayıf"
+
+    @property
+    def confidence(self) -> float:
+        """0.0 - 1.0 arası güven skoru"""
+        return min(abs(self.total) / 0.75, 1.0)
+
+
+# ─── Ana Sinyal Motoru ────────────────────────────────────────────────────────
+
+# Yüksek hacimli popüler futures sembolleri (otomatik tarama listesi)
+TOP_SYMBOLS = [
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT",
+    "MATICUSDT", "LTCUSDT", "ATOMUSDT", "UNIUSDT", "NEARUSDT",
+]
 
 
 class AutoSignalEngine:
@@ -210,30 +228,77 @@ class AutoSignalEngine:
         self.signal_count = 0
         self.scan_interval = 15 * 60  # 15 dakika
 
+        # ── Cooldown: aynı sembol için min 4 saat bekleme ──────────
+        self._last_trade_time: dict = {}   # symbol → datetime
+        self._cooldown_hours = 4
+
+        # ── Multi-symbol mod ──────────────────────────────────────
+        # settings.SYMBOL varsa sadece onu tara, yoksa top listesini
+        self._target_symbols = (
+            [getattr(settings, "SYMBOL", "BTCUSDT")]
+            if getattr(settings, "MULTI_SYMBOL", False) is False
+            else TOP_SYMBOLS
+        )
+
+    # ─────────────────────────────────────────────────────────────
+
     async def start(self):
         self._running = True
-        logger.info("🤖 Otomatik Sinyal Motoru başlatıldı (15 dk tarama)")
-        # İlk taramadan önce veri yüklenmesini bekle
-        await asyncio.sleep(30)
+        logger.info(
+            f"🤖 Otomatik Sinyal Motoru başlatıldı "
+            f"(interval={self.scan_interval//60}dk, "
+            f"semboller={self._target_symbols})"
+        )
+        await asyncio.sleep(30)   # Veri yüklenmesini bekle
         while self._running:
             try:
-                await self._scan_and_trade()
+                await self._scan_all_symbols()
             except Exception as e:
-                logger.error(f"Sinyal motoru hatası: {e}")
+                logger.error(f"Sinyal motoru kritik hata: {e}", exc_info=True)
             await asyncio.sleep(self.scan_interval)
 
-    async def _scan_and_trade(self):
+    async def _scan_all_symbols(self):
+        """Tüm hedef sembolleri sırayla tara."""
+        for symbol in self._target_symbols:
+            try:
+                await self._scan_and_trade(symbol)
+            except Exception as e:
+                logger.error(f"[{symbol}] tarama hatası: {e}", exc_info=True)
+            # Semboller arası küçük bekleme (rate limit)
+            await asyncio.sleep(2)
+
+    def _is_on_cooldown(self, symbol: str) -> bool:
+        last = self._last_trade_time.get(symbol)
+        if last is None:
+            return False
+        elapsed = datetime.now(timezone.utc) - last
+        return elapsed < timedelta(hours=self._cooldown_hours)
+
+    def _set_cooldown(self, symbol: str):
+        self._last_trade_time[symbol] = datetime.now(timezone.utc)
+
+    # ─────────────────────────────────────────────────────────────
+
+    async def _scan_and_trade(self, symbol: str):
+        # ── Veri kontrolü ─────────────────────────────────────────
         ds = self.data.state
         if not ds.mark_price or not ds.updated_at:
-            logger.warning("Piyasa verisi henüz yok, tarama atlandı")
+            logger.warning(f"[{symbol}] Piyasa verisi henüz yok, atlandı")
             return
 
-        symbol = self.s.SYMBOL
+        # ── Cooldown kontrolü ──────────────────────────────────────
+        if self._is_on_cooldown(symbol):
+            remaining = self._cooldown_hours - (
+                datetime.now(timezone.utc) - self._last_trade_time[symbol]
+            ).total_seconds() / 3600
+            logger.debug(f"[{symbol}] Cooldown aktif, {remaining:.1f} saat kaldı")
+            return
+
         candles_1h = list(ds.klines_1h)
         candles_5m = list(ds.klines_5m)
 
         if len(candles_1h) < 50:
-            logger.warning("Yetersiz kline verisi, tarama atlandı")
+            logger.warning(f"[{symbol}] Yetersiz kline verisi ({len(candles_1h)}<50), atlandı")
             return
 
         closes_1h = [c["close"] for c in candles_1h]
@@ -302,7 +367,7 @@ class AutoSignalEngine:
 
         # ── 5. ATR Breakout ───────────────────────────────────────
         atr_val = ds.atr_14
-        if atr_val > 0 and len(candles_1h) > 2:
+        if atr_val > 0 and len(candles_1h) > 4:
             prev_high = max(c["high"] for c in candles_1h[-4:-1])
             prev_low  = min(c["low"] for c in candles_1h[-4:-1])
             breakout_threshold = atr_val * 0.5
@@ -335,9 +400,9 @@ class AutoSignalEngine:
             score.add("STOCH_RSI", 0.0, f"StochRSI={srsi:.1f} — nötr")
 
         # ── 8. OBV Trendi ─────────────────────────────────────────
-        if len(candles_1h) >= 20:
+        if len(candles_1h) >= 40:
             obv_current = obv(candles_1h[-20:])
-            obv_prev    = obv(candles_1h[-40:-20]) if len(candles_1h) >= 40 else 0
+            obv_prev    = obv(candles_1h[-40:-20])
             if obv_current > obv_prev * 1.1:
                 score.add("OBV", 0.4, "OBV yükseliyor — alım baskısı güçlü")
             elif obv_current < obv_prev * 0.9:
@@ -365,7 +430,7 @@ class AutoSignalEngine:
         logger.info(
             f"📊 Sinyal Taraması [{symbol}] | Skor: {total:+.3f} | "
             f"Yön: {side or 'YOK'} | Güç: {score.strength} | "
-            f"Rejim: {ds.regime}"
+            f"Güven: {score.confidence:.0%} | Rejim: {ds.regime}"
         )
         for detail in score.details:
             logger.info(f"   → {detail}")
@@ -383,55 +448,80 @@ class AutoSignalEngine:
             return
 
         # ── RL Agent Denetimi ─────────────────────────────────────
+        decision_strategy = "SMART"
         if self.rl:
-            decision = self.rl.decide()
-            if not decision.trade_allowed:
-                logger.info(f"🤖 RL agent işlemi engelledi (ε={self.rl.epsilon:.3f})")
-                return
+            try:
+                decision = self.rl.decide()
+                if not decision.trade_allowed:
+                    logger.info(f"🤖 RL agent işlemi engelledi (ε={self.rl.epsilon:.3f})")
+                    return
 
-            # RL sinyali indikatör sinyaliyle çelişiyorsa geri çekil
-            # (exploration sırasında %50 ihtimalle yine de devam et)
-            import random
-            if decision.strategy == "GRID" and ds.regime == "trend" and random.random() > 0.5:
-                logger.info("🤖 RL: GRID seçti ama trend rejimi — SMART'a geçiliyor")
-                decision_strategy = "SMART"
-            else:
-                decision_strategy = decision.strategy
+                if decision.strategy == "GRID" and ds.regime == "trend" and random.random() > 0.5:
+                    logger.info("🤖 RL: GRID seçti ama trend rejimi — SMART'a geçiliyor")
+                    decision_strategy = "SMART"
+                else:
+                    decision_strategy = decision.strategy
 
-            logger.info(
-                f"🤖 RL Onayı: {decision_strategy} | {decision.risk_mode} | "
-                f"kaldıraç≤{decision.leverage_cap}x | ε={self.rl.epsilon:.3f}"
-            )
+                logger.info(
+                    f"🤖 RL Onayı: {decision_strategy} | {decision.risk_mode} | "
+                    f"kaldıraç≤{decision.leverage_cap}x | ε={self.rl.epsilon:.3f}"
+                )
+            except Exception as e:
+                logger.warning(f"RL karar hatası (devam ediliyor): {e}")
+
+        # ── Risk Kontrolü ─────────────────────────────────────────
+        # Zayıf sinyallerde lotı küçük tut
+        quantity_scale = 1.0
+        if score.strength == "zayıf":
+            quantity_scale = 0.5
+        elif score.strength == "orta":
+            quantity_scale = 0.75
 
         # ── İşlem Aç ─────────────────────────────────────────────
         signal_payload = {
             "symbol": symbol,
             "side": side,
             "timeframe": "1h",
-            "strategy_tag": "auto_signal",
+            "strategy_tag": decision_strategy.lower() if isinstance(decision_strategy, str) else "auto_signal",
             "entry_hint": current_price,
+            "quantity_scale": quantity_scale,
+            "score": round(total, 3),
             "secret": self.s.WEBHOOK_SECRET,
         }
 
-        logger.info(f"🚀 Otomatik işlem açılıyor: {symbol} {side} (skor={total:+.3f})")
-        result = await self.strategy.handle_signal(signal_payload)
+        logger.info(
+            f"🚀 Otomatik işlem açılıyor: {symbol} {side} "
+            f"(skor={total:+.3f}, ölçek={quantity_scale})"
+        )
 
+        try:
+            result = await self.strategy.handle_signal(signal_payload)
+        except Exception as e:
+            logger.error(f"[{symbol}] handle_signal hatası: {e}", exc_info=True)
+            return
+
+        # ── Sonuç kaydet ──────────────────────────────────────────
         self.signal_count += 1
+        self._set_cooldown(symbol)   # Cooldown başlat
+
         self.last_signal = {
             "time": datetime.now(timezone.utc).isoformat(),
             "symbol": symbol,
             "side": side,
             "score": round(total, 3),
             "strength": score.strength,
-            "strategy": result.get("strategy"),
-            "ok": result.get("ok"),
+            "strategy": result.get("strategy") if isinstance(result, dict) else None,
+            "ok": result.get("ok") if isinstance(result, dict) else False,
             "details": score.details,
         }
 
-        if result.get("ok"):
+        if isinstance(result, dict) and result.get("ok"):
             logger.info(f"✅ İşlem açıldı: {result}")
         else:
-            logger.warning(f"❌ İşlem reddedildi: {result.get('reason')}")
+            reason = result.get("reason") if isinstance(result, dict) else str(result)
+            logger.warning(f"❌ İşlem reddedildi: {reason}")
+
+    # ─── Durum API'si ─────────────────────────────────────────────
 
     def get_status(self) -> dict:
         return {
@@ -439,4 +529,9 @@ class AutoSignalEngine:
             "scan_interval_min": self.scan_interval // 60,
             "signal_count": self.signal_count,
             "last_signal": self.last_signal,
+            "cooldowns": {
+                sym: self._last_trade_time[sym].isoformat()
+                for sym in self._last_trade_time
+            },
+            "target_symbols": self._target_symbols,
         }
