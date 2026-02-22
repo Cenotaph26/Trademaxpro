@@ -82,8 +82,10 @@ class StrategyManager:
             return {"ok": False, "reason": reason}
 
         # ── 3. RL agent kararı ────────────────────────────────────────
+        # Manuel işlemlerde RL bypass — strategy_tag "manual" ile başlıyorsa
+        is_manual = signal.get("strategy_tag", "").startswith("manual")
         decision = None
-        if self.rl_agent:
+        if self.rl_agent and not is_manual:
             decision = self.rl_agent.decide()
             logger.info(
                 f"🤖 RL Kararı: {decision.strategy} | {decision.risk_mode} | "
@@ -91,6 +93,8 @@ class StrategyManager:
             )
             if not decision.trade_allowed:
                 return {"ok": False, "reason": "RL agent: trade_allowed=0"}
+        elif is_manual:
+            logger.info("👤 Manuel işlem — RL bypass edildi")
 
         strategy = decision.strategy if decision else "SMART"
         risk_mode_str = decision.risk_mode if decision else "normal"
