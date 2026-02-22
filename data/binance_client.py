@@ -40,6 +40,7 @@ class BinanceDataClient:
         self.exchange: Optional[ccxt.binanceusdm] = None
         self.state = MarketState()
         self._running = False
+        self._auth_ok = False  # auth başarılı mı?
 
     async def connect(self):
         params = {
@@ -53,18 +54,36 @@ class BinanceDataClient:
         if self.settings.BINANCE_TESTNET:
             params["urls"] = {
                 "api": {
-                    "public": "https://testnet.binancefuture.com",
-                    "private": "https://testnet.binancefuture.com",
+                    "fapiPublic":    "https://testnet.binancefuture.com/fapi/v1",
+                    "fapiPrivate":   "https://testnet.binancefuture.com/fapi/v1",
+                    "fapiPublicV2":  "https://testnet.binancefuture.com/fapi/v2",
+                    "fapiPrivateV2": "https://testnet.binancefuture.com/fapi/v2",
+                    "public":  "https://testnet.binancefuture.com/fapi/v1",
+                    "private": "https://testnet.binancefuture.com/fapi/v1",
                 }
             }
+
         self.exchange = ccxt.binanceusdm(params)
-        await self.exchange.load_markets()
-        logger.info(f"Binance bağlandı (testnet={self.settings.BINANCE_TESTNET})")
+        try:
+            await self.exchange.load_markets()
+            self._auth_ok = True
+            logger.info(f"✅ Binance bağlandı (testnet={self.settings.BINANCE_TESTNET})")
+        except ccxt.AuthenticationError as e:
+            logger.error(f"❌ Binance AUTH hatası — API key geçersiz: {e}")
+            logger.warning("Bot kısmi modda çalışıyor — healthcheck geçecek")
+            # raise etmiyoruz
+        except Exception as e:
+            logger.error(f"❌ Binance load_markets hatası: {e}")
+            logger.warning("Bot kısmi modda çalışıyor — healthcheck geçecek")
+            # raise etmiyoruz
 
     async def disconnect(self):
         self._running = False
         if self.exchange:
-            await self.exchange.close()
+            try:
+                await self.exchange.close()
+            except Exception as e:
+                logger.warning(f"Exchange close hatası: {e}")
 
     # ─── Public data fetchers ─────────────────────────────────────
 
@@ -131,7 +150,6 @@ class BinanceDataClient:
         atr = sum(trs[-period:]) / period
         self.state.atr_14 = atr
 
-        # Volatility: std of last 20 close returns
         closes = [c["close"] for c in candles[-21:]]
         returns = [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(1, len(closes))]
         if returns:
@@ -139,7 +157,6 @@ class BinanceDataClient:
             variance = sum((r - mean) ** 2 for r in returns) / len(returns)
             self.state.volatility_1h = variance ** 0.5
 
-        # Simple regime: ADX proxy via range vs ATR
         recent = candles[-20:]
         total_range = sum(c["high"] - c["low"] for c in recent) / 20
         net_move = abs(recent[-1]["close"] - recent[0]["close"])
@@ -172,14 +189,33 @@ class BinanceDataClient:
         logger.info("Market data stream başlatıldı")
         while self._running:
             try:
-                await asyncio.gather(
-                    self.fetch_mark_price(),
-                    self.fetch_funding_rate(),
-                )
-                # Klines daha az sıklıkla
+                # Exchange hiç init edilmediyse bekle
+                if self.exchange is None:
+                    await asyncio.sleep(30)
+                    continue
+
+                # Auth başarısızsa tekrar bağlanmayı dene (her 60sn)
+                if not self._auth_ok:
+                    logger.warning("⏳ Auth yok — 60sn sonra tekrar denenecek")
+                    await asyncio.sleep(60)
+                    try:
+                        await self.connect()
+                    except Exception:
+                        pass
+                    continue
+
+                await self.fetch_mark_price()
+                await self.fetch_funding_rate()
                 await self.fetch_klines("1h", 200)
                 await self.fetch_klines("5m", 100)
                 self.state.updated_at = datetime.utcnow()
+
+            except ccxt.AuthenticationError as e:
+                logger.error(f"❌ Stream auth hatası: {e}")
+                self._auth_ok = False
+                await asyncio.sleep(60)
             except Exception as e:
                 logger.error(f"Market data hatası: {e}")
-            await asyncio.sleep(10)
+                await asyncio.sleep(10)
+            else:
+                await asyncio.sleep(10)
