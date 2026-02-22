@@ -20,7 +20,7 @@ from risk.engine import RiskEngine
 from strategies.manager import StrategyManager
 from rl_agent.agent import RLAgent
 from api.webhook import router as webhook_router
-from api.status import router as status_router, broadcast_loop
+from api.status import router as status_router, manager as ws_manager, _build_status
 from api.trade import router as trade_router
 from utils.logger import setup_logger
 
@@ -65,7 +65,17 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(data_client.stream_market_data())
     asyncio.create_task(risk_engine.monitor_loop())
     asyncio.create_task(rl_agent.learning_loop())
-    asyncio.create_task(broadcast_loop(app))  # WebSocket broadcast
+    async def broadcast_loop():
+        while True:
+            try:
+                if ws_manager.active:
+                    data = await _build_status(app)
+                    await ws_manager.broadcast({"type": "status", "data": data})
+            except Exception as e:
+                logger.warning(f"Broadcast hatası: {e}")
+            await asyncio.sleep(1)
+
+    asyncio.create_task(broadcast_loop())
 
     logger.info("✅ Bot hazır!")
     yield
