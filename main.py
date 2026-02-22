@@ -10,8 +10,6 @@ import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 import uvicorn
 
 from config.settings import settings
@@ -20,12 +18,12 @@ from risk.engine import RiskEngine
 from strategies.manager import StrategyManager
 from rl_agent.agent import RLAgent
 from api.webhook import router as webhook_router
-from api.status import router as status_router, manager as ws_manager, _build_status
-from api.trade import router as trade_router
+from api.status import router as status_router
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+# Global state
 data_client: BinanceDataClient = None
 risk_engine: RiskEngine = None
 strategy_manager: StrategyManager = None
@@ -38,8 +36,10 @@ async def lifespan(app: FastAPI):
 
     logger.info("🚀 Trading Bot başlatılıyor...")
 
+    # Initialize components
     data_client = BinanceDataClient()
 
+    # Binance bağlantısı — hata olursa bot yine de ayağa kalkar
     try:
         await data_client.connect()
     except Exception as e:
@@ -56,30 +56,21 @@ async def lifespan(app: FastAPI):
 
     strategy_manager.set_rl_agent(rl_agent)
 
+    # Background tasks
+    asyncio.create_task(data_client.stream_market_data())
+    asyncio.create_task(risk_engine.monitor_loop())
+    asyncio.create_task(rl_agent.learning_loop())
+
+    # Share with routers
     app.state.data_client = data_client
     app.state.risk_engine = risk_engine
     app.state.strategy_manager = strategy_manager
     app.state.rl_agent = rl_agent
 
-    # Background tasks
-    asyncio.create_task(data_client.stream_market_data())
-    asyncio.create_task(risk_engine.monitor_loop())
-    asyncio.create_task(rl_agent.learning_loop())
-    async def broadcast_loop():
-        while True:
-            try:
-                if ws_manager.active:
-                    data = await _build_status(app)
-                    await ws_manager.broadcast({"type": "status", "data": data})
-            except Exception as e:
-                logger.warning(f"Broadcast hatası: {e}")
-            await asyncio.sleep(1)
-
-    asyncio.create_task(broadcast_loop())
-
     logger.info("✅ Bot hazır!")
     yield
 
+    # Cleanup
     logger.info("🛑 Bot kapatılıyor...")
     try:
         await strategy_manager.close_all_positions()
@@ -97,22 +88,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 app.include_router(webhook_router, prefix="/webhook")
 app.include_router(status_router, prefix="/status")
-app.include_router(trade_router, prefix="/execution")
-
-
-@app.get("/")
-async def dashboard():
-    return FileResponse("dashboard.html")
 
 
 def handle_shutdown(sig, frame):
