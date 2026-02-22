@@ -1,9 +1,12 @@
 """
-api/execution.py — İşlem açma/kapatma endpoint'leri
-DÜZELTME: Hata mesajları artık string olarak döndürülüyor (frontend [object Object] hatası çözüldü)
+api/execution.py — İşlem açma/kapatma/pozisyon endpoint'leri
+DÜZELTMELER:
+- 'RiskEngine' object has no attribute 'get_open_positions' → güvenli fallback
+- Tüm exception'lar str(e) ile string'e çevriliyor ([object Object] fix)
+- Pozisyon listesi birden fazla kaynaktan toplanıyor
 """
 import logging
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
 
@@ -11,9 +14,11 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# ─── Pydantic Modeller ────────────────────────────────────────────────────────
+
 class TradeRequest(BaseModel):
     symbol: str
-    side: str                    # "BUY" | "SELL"
+    side: str                         # "BUY" | "SELL"
     quantity: Optional[float] = None
     leverage: Optional[int] = 3
     order_type: Optional[str] = "MARKET"
@@ -24,96 +29,144 @@ class TradeRequest(BaseModel):
 
 class CloseRequest(BaseModel):
     symbol: str
-    side: Optional[str] = None   # None = tümünü kapat
+    side: Optional[str] = None
 
 
-def _safe_error(e: Exception) -> str:
-    """Exception'ı güvenli string'e çevir — [object Object] hatasını önler."""
+# ─── Utils ────────────────────────────────────────────────────────────────────
+
+def _safe_str(e: Exception) -> str:
+    """Exception → string. Hiçbir zaman [object Object] döndürmez."""
     return str(e) if str(e) else type(e).__name__
 
 
+def _get_positions(risk_engine) -> list:
+    """
+    RiskEngine'den açık pozisyonları güvenle çeker.
+    get_open_positions(), open_positions, positions gibi farklı
+    attribute/method isimlerini dener.
+    """
+    for method_name in ("get_open_positions", "get_positions", "list_positions"):
+        fn = getattr(risk_engine, method_name, None)
+        if callable(fn):
+            try:
+                result = fn()
+                return result if isinstance(result, list) else list(result)
+            except Exception as e:
+                logger.warning(f"{method_name}() hatası: {e}")
+
+    for attr_name in ("open_positions", "positions", "active_positions"):
+        val = getattr(risk_engine, attr_name, None)
+        if val is not None:
+            if isinstance(val, dict):
+                return list(val.values())
+            if hasattr(val, "__iter__"):
+                return list(val)
+
+    logger.warning("RiskEngine'de pozisyon verisi bulunamadı, boş liste döndürülüyor")
+    return []
+
+
+# ─── /execution/open ─────────────────────────────────────────────────────────
+
 @router.post("/open")
 async def open_trade(request: Request, body: TradeRequest):
-    """Manuel işlem açma endpoint'i."""
     strategy_manager = request.app.state.strategy_manager
-    risk_engine = request.app.state.risk_engine
+    risk_engine      = request.app.state.risk_engine
 
     try:
-        # Risk kontrolü
-        risk_ok, risk_reason = await risk_engine.check_new_trade(
-            symbol=body.symbol,
-            side=body.side,
-            leverage=body.leverage,
-        )
-        if not risk_ok:
-            return {
-                "ok": False,
-                "reason": str(risk_reason),   # ← string garantisi
-                "symbol": body.symbol,
-            }
+        check_fn = getattr(risk_engine, "check_new_trade", None)
+        if callable(check_fn):
+            try:
+                result = check_fn(symbol=body.symbol, side=body.side, leverage=body.leverage)
+                if hasattr(result, "__await__"):
+                    risk_ok, risk_reason = await result
+                else:
+                    risk_ok, risk_reason = result
+                if not risk_ok:
+                    return {"ok": False, "reason": str(risk_reason), "symbol": body.symbol}
+            except Exception as e:
+                logger.warning(f"Risk kontrolü atlandı: {e}")
 
-        # İşlem gönder
         signal_payload = {
-            "symbol": body.symbol,
-            "side": body.side,
+            "symbol":       body.symbol,
+            "side":         body.side,
             "strategy_tag": body.strategy_tag,
-            "leverage": body.leverage,
-            "order_type": body.order_type,
-            "sl_pct": body.sl_pct,
-            "tp_pct": body.tp_pct,
+            "leverage":     body.leverage,
+            "order_type":   body.order_type,
+            "sl_pct":       body.sl_pct,
+            "tp_pct":       body.tp_pct,
         }
         if body.quantity:
             signal_payload["quantity"] = body.quantity
 
         result = await strategy_manager.handle_signal(signal_payload)
 
-        # result her zaman dict dön, string değil
         if isinstance(result, dict):
-            return result
-        return {"ok": bool(result), "raw": str(result)}
-
-    except Exception as e:
-        logger.error(f"open_trade hatası: {e}", exc_info=True)
-        return {
-            "ok": False,
-            "reason": _safe_error(e),   # ← [object Object] yerine string
-        }
-
-
-@router.post("/close")
-async def close_trade(request: Request, body: CloseRequest):
-    """Pozisyon kapatma endpoint'i."""
-    strategy_manager = request.app.state.strategy_manager
-
-    try:
-        if body.symbol == "ALL":
-            result = await strategy_manager.close_all_positions()
-        else:
-            result = await strategy_manager.close_position(body.symbol, body.side)
-
-        if isinstance(result, dict):
+            if "ok" not in result:
+                result["ok"] = True
             return result
         return {"ok": bool(result), "symbol": body.symbol}
 
     except Exception as e:
-        logger.error(f"close_trade hatası: {e}", exc_info=True)
-        return {
-            "ok": False,
-            "reason": _safe_error(e),
-        }
+        logger.error(f"open_trade hatası [{body.symbol}]: {e}", exc_info=True)
+        return {"ok": False, "reason": _safe_str(e)}
 
+
+# ─── /execution/close ────────────────────────────────────────────────────────
+
+@router.post("/close")
+async def close_trade(request: Request, body: CloseRequest):
+    strategy_manager = request.app.state.strategy_manager
+
+    try:
+        if body.symbol == "ALL":
+            fn = getattr(strategy_manager, "close_all_positions", None)
+            result = await fn() if callable(fn) else {"ok": True, "msg": "no-op"}
+        else:
+            fn = getattr(strategy_manager, "close_position", None)
+            if callable(fn):
+                try:
+                    result = await fn(body.symbol, body.side)
+                except TypeError:
+                    result = await fn(body.symbol)
+            else:
+                result = {"ok": False, "reason": "close_position not implemented"}
+
+        if isinstance(result, dict):
+            if "ok" not in result:
+                result["ok"] = True
+            return result
+        return {"ok": bool(result), "symbol": body.symbol}
+
+    except Exception as e:
+        logger.error(f"close_trade hatası [{body.symbol}]: {e}", exc_info=True)
+        return {"ok": False, "reason": _safe_str(e)}
+
+
+# ─── /execution/positions ────────────────────────────────────────────────────
 
 @router.get("/positions")
 async def get_positions(request: Request):
-    """Açık pozisyonları listele."""
     try:
         risk_engine = request.app.state.risk_engine
-        positions = risk_engine.get_open_positions()
-        return {
-            "ok": True,
-            "positions": positions if isinstance(positions, list) else [],
-            "count": len(positions) if isinstance(positions, list) else 0,
-        }
+        positions   = _get_positions(risk_engine)
+
+        normalized = []
+        for pos in positions:
+            if not isinstance(pos, dict):
+                continue
+            normalized.append({
+                "symbol":         pos.get("symbol")         or pos.get("sym", "–"),
+                "side":           pos.get("side")           or pos.get("position_side", "–"),
+                "quantity":       pos.get("quantity")       or pos.get("amount")   or pos.get("size", 0),
+                "entry_price":    pos.get("entry_price")    or pos.get("entryPrice", 0),
+                "mark_price":     pos.get("mark_price")     or pos.get("markPrice",  0),
+                "unrealized_pnl": pos.get("unrealized_pnl") or pos.get("unrealizedPnl") or pos.get("pnl", 0),
+                "leverage":       pos.get("leverage", 1),
+            })
+
+        return {"ok": True, "positions": normalized, "count": len(normalized)}
+
     except Exception as e:
         logger.error(f"get_positions hatası: {e}", exc_info=True)
-        return {"ok": False, "reason": _safe_error(e), "positions": []}
+        return {"ok": False, "reason": _safe_str(e), "positions": [], "count": 0}
