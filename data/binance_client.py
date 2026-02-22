@@ -51,19 +51,20 @@ class BinanceDataClient:
                 "adjustForTimeDifference": True,
             },
         }
-        if self.settings.BINANCE_TESTNET:
-            params["urls"] = {
-                "api": {
-                    "fapiPublic":    "https://demo-fapi.binance.com/fapi/v1",
-                    "fapiPrivate":   "https://demo-fapi.binance.com/fapi/v1",
-                    "fapiPublicV2":  "https://demo-fapi.binance.com/fapi/v2",
-                    "fapiPrivateV2": "https://demo-fapi.binance.com/fapi/v2",
-                    "public":        "https://demo-fapi.binance.com/fapi/v1",
-                    "private":       "https://demo-fapi.binance.com/fapi/v1",
-                }
-            }
 
         self.exchange = ccxt.binanceusdm(params)
+
+        if self.settings.BINANCE_TESTNET:
+            self.exchange.set_sandbox_mode(True)
+            # demo-fapi URL'lerini override et
+            self.exchange.urls["api"] = {
+                "fapiPublic":    "https://demo-fapi.binance.com/fapi/v1",
+                "fapiPrivate":   "https://demo-fapi.binance.com/fapi/v1",
+                "fapiPublicV2":  "https://demo-fapi.binance.com/fapi/v2",
+                "fapiPrivateV2": "https://demo-fapi.binance.com/fapi/v2",
+                "public":        "https://demo-fapi.binance.com/fapi/v1",
+                "private":       "https://demo-fapi.binance.com/fapi/v1",
+            }
         try:
             await self.exchange.load_markets()
             self._auth_ok = True
