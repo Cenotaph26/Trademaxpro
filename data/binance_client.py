@@ -31,6 +31,12 @@ class MarketState:
         self.klines_5m: deque = deque(maxlen=300)
         self.klines_1h: deque = deque(maxlen=200)
         self.updated_at: Optional[datetime] = None
+        # Account bilgileri
+        self.wallet_balance: float = 0.0
+        self.unrealized_pnl: float = 0.0
+        self.daily_pnl: float = 0.0
+        self.daily_trades: int = 0
+        self.margin_usage_pct: float = 0.0
 
 
 class BinanceDataClient:
@@ -179,6 +185,30 @@ class BinanceDataClient:
             "used": usdt.get("used", 0.0),
         }
 
+    async def _update_account(self):
+        """Bakiye ve hesap bilgilerini güncelle."""
+        try:
+            balance = await self.exchange.fetch_balance()
+            usdt = balance.get("USDT", {})
+            self.state.wallet_balance = float(usdt.get("total", 0.0) or 0.0)
+
+            # Margin kullanımı
+            total = float(usdt.get("total", 0.0) or 0.0)
+            used  = float(usdt.get("used",  0.0) or 0.0)
+            if total > 0:
+                self.state.margin_usage_pct = round((used / total) * 100, 2)
+
+            # Unrealized PnL — futures balance info
+            info = balance.get("info", {})
+            assets = info.get("assets", []) if isinstance(info, dict) else []
+            for asset in assets:
+                if asset.get("asset") == "USDT":
+                    self.state.unrealized_pnl = float(asset.get("unrealizedProfit", 0.0) or 0.0)
+                    break
+
+        except Exception as e:
+            logger.warning(f"Bakiye güncellenemedi: {e}")
+
     async def get_positions(self) -> list:
         positions = await self.exchange.fetch_positions([self.settings.SYMBOL])
         return [p for p in positions if abs(p.get("contracts", 0) or 0) > 0]
@@ -209,6 +239,7 @@ class BinanceDataClient:
                 await self.fetch_funding_rate()
                 await self.fetch_klines("1h", 200)
                 await self.fetch_klines("5m", 100)
+                await self._update_account()
                 self.state.updated_at = datetime.utcnow()
 
             except ccxt.AuthenticationError as e:
