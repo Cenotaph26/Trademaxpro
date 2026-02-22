@@ -10,6 +10,7 @@ import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 import uvicorn
 
 from config.settings import settings
@@ -90,6 +91,11 @@ app = FastAPI(
 
 app.include_router(webhook_router, prefix="/webhook")
 app.include_router(status_router, prefix="/status")
+
+
+@app.get("/")
+async def dashboard():
+    return FileResponse("dashboard.html")
 
 
 def handle_shutdown(sig, frame):
