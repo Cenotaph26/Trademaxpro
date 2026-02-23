@@ -1151,34 +1151,53 @@
 
     <!-- SIGNALS TAB -->
     <div class="panel-content" id="tab-signals">
-      <div class="ctrl-card" id="agent-activity-card">
-        <div class="ctrl-title">🤖 Ajan Aktivitesi</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+      <!-- Ajan Durum Kartı -->
+      <div class="ctrl-card" id="agent-activity-card" style="margin-bottom:10px">
+        <div class="ctrl-title">🤖 Ajan Durumu</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">
           <div class="agent-cell">
             <div class="agent-cell-label">Durum</div>
             <div class="agent-cell-val" id="sig-agent-status" style="color:var(--text3)">–</div>
           </div>
           <div class="agent-cell">
-            <div class="agent-cell-label">İşlem Sayısı</div>
+            <div class="agent-cell-label">İşlem</div>
             <div class="agent-cell-val cyan" id="sig-trade-count">0</div>
           </div>
           <div class="agent-cell">
-            <div class="agent-cell-label">RL Epsilon</div>
+            <div class="agent-cell-label">Epsilon</div>
             <div class="agent-cell-val yellow" id="sig-epsilon">–</div>
           </div>
+          <div class="agent-cell">
+            <div class="agent-cell-label">Tarama</div>
+            <div class="agent-cell-val" id="sig-interval" style="color:var(--text2)">5dk</div>
+          </div>
         </div>
-        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:8px 12px;display:flex;justify-content:space-between">
-          <span style="font-size:11px;color:var(--text2)">Taranan semboller:</span>
-          <span id="sig-symbols" style="font-size:11px;color:var(--cyan)">BTC, ETH, SOL, BNB, XRP</span>
+
+        <!-- Sembol Skor Kartları -->
+        <div style="font-size:9px;color:var(--text3);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px">Anlık Sinyal Skorları (tıkla → işlem aç)</div>
+        <div id="symbol-score-bar" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">
+          <div class="sym-score-item"><div class="sym-score-name">BTC</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
+          <div class="sym-score-item"><div class="sym-score-name">ETH</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
+          <div class="sym-score-item"><div class="sym-score-name">SOL</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
+          <div class="sym-score-item"><div class="sym-score-name">BNB</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
+          <div class="sym-score-item"><div class="sym-score-name">XRP</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
         </div>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <span style="color:var(--text3);font-size:10px;letter-spacing:0.12em;text-transform:uppercase">Son Sinyaller</span>
-        <button class="btn-secondary" onclick="refreshStatus()">↻ Yenile</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="color:var(--text3);font-size:10px;letter-spacing:0.12em;text-transform:uppercase">Sinyal Geçmişi</span>
+        <div style="display:flex;gap:6px">
+          <select id="sig-filter" onchange="renderSignalsTab()" style="background:var(--bg4);border:1px solid var(--border);color:var(--text2);font-family:var(--mono);font-size:10px;padding:3px 6px;border-radius:4px">
+            <option value="all">Tümü</option>
+            <option value="BUY">Sadece LONG</option>
+            <option value="SELL">Sadece SHORT</option>
+            <option value="ok">İşlem Açılanlar</option>
+          </select>
+          <button class="btn-secondary" onclick="refreshStatus()">↻ Yenile</button>
+        </div>
       </div>
       <div id="signals-content">
-        <div class="empty-state"><div>📊</div>Sinyal bekleniyor...</div>
+        <div class="empty-state"><div>📊</div>Sinyal bekleniyor...<div style="font-size:10px;margin-top:8px;color:var(--text3)">Ajan 5 dakikada bir BTC, ETH, SOL, BNB, XRP'yi tarar</div></div>
       </div>
     </div>
 
@@ -1579,6 +1598,7 @@ let state = {
   filteredSymbols: [],
   positions: [],
   signalHistory: [],
+  symbolScores: {},
   agentRunning: false,
   marketPrices: {},
 };
@@ -1692,6 +1712,8 @@ async function refreshStatus() {
     if (sigCount) sigCount.textContent = se.signal_count ?? se.trade_count ?? 0;
     const sigEps = document.getElementById("sig-epsilon");
     if (sigEps) sigEps.textContent = rl.epsilon !== undefined ? fmt(rl.epsilon, 3) : "–";
+    const sigInterval = document.getElementById("sig-interval");
+    if (sigInterval) sigInterval.textContent = (se.scan_interval_min ?? 5) + "dk";
 
     // Regime
     const regime = data.regime ?? data.market_regime ?? "–";
@@ -1719,6 +1741,25 @@ async function refreshStatus() {
 
     // Risk
     renderRisk(data);
+
+    // Sinyal geçmişini ve sembol skorlarını güncelle
+    const se2 = data.signal_engine ?? {};
+    if (se2.signal_history && se2.signal_history.length) {
+      // Backend'den gelen tüm geçmişi merge et
+      se2.signal_history.forEach(sig => {
+        if (sig.time && !state.signalHistory.find(s => s.time === sig.time && s.symbol === sig.symbol)) {
+          state.signalHistory.push(sig);
+        }
+      });
+      // Zamana göre sırala
+      state.signalHistory.sort((a,b) => new Date(b.time) - new Date(a.time));
+      if (state.signalHistory.length > 50) state.signalHistory = state.signalHistory.slice(0,50);
+    }
+    if (se2.symbol_scores) {
+      state.symbolScores = se2.symbol_scores;
+    }
+    renderSignalsTab();
+    renderSymbolScoreBar(state.symbolScores);
 
   } catch (err) {
     document.getElementById("conn-dot").className = "dot offline";
@@ -1779,30 +1820,83 @@ function renderLastSignal(sig) {
 function renderSignalsTab() {
   const el = document.getElementById("signals-content");
   if (!state.signalHistory.length) {
-    el.innerHTML = '<div class="empty-state"><div>📊</div>Sinyal bekleniyor...</div>';
+    el.innerHTML = '<div class="empty-state"><div>📊</div>Sinyal bekleniyor...<div style="font-size:10px;margin-top:8px;color:var(--text3)">Ajan 15 dakikada bir BTC, ETH, SOL, BNB, XRP'yi tarar</div></div>';
     return;
   }
   el.innerHTML = state.signalHistory.map(sig => {
     const side = sig.side;
+    const hasSignal = side !== null && side !== undefined;
     const sideClass = side === "BUY" ? "buy" : side === "SELL" ? "sell" : "none";
-    const sideLabel = side === "BUY" ? "LONG" : side === "SELL" ? "SHORT" : "YOK";
+    const sideLabel = side === "BUY" ? "▲ LONG" : side === "SELL" ? "▼ SHORT" : "YOK";
     const score = parseFloat(sig.score || 0);
-    const pct = Math.min(Math.abs(score) / 0.75 * 100, 100);
+    const absScore = Math.abs(score);
+    const pct = Math.min(absScore / 0.75 * 100, 100);
     const fillClass = score > 0 ? "positive" : "negative";
+    const scoreColor = score > 0.4 ? "var(--green)" : score < -0.4 ? "var(--red)" : score > 0.2 ? "#88cc44" : score < -0.2 ? "#cc6644" : "var(--text3)";
+    const tradeOpened = sig.ok === true;
+    const sym = sig.symbol || "–";
+    const sym_base = sym.replace("USDT","");
+    
     return `
-      <div class="signal-card">
+      <div class="signal-card" style="${tradeOpened ? 'border-color:rgba(0,255,136,0.3);background:rgba(0,255,136,0.03)' : ''}">
         <div class="signal-header">
-          <div class="signal-symbol" style="font-size:13px">${sig.symbol || "–"}</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="signal-symbol" style="font-size:14px;font-weight:700">${sym_base}</div>
+            <div style="font-size:9px;color:var(--text3)">/USDT</div>
+            ${tradeOpened ? '<div style="font-size:9px;background:rgba(0,255,136,0.12);color:var(--green);border:1px solid rgba(0,255,136,0.25);border-radius:3px;padding:1px 6px">✅ İŞLEM AÇILDI</div>' : ''}
+          </div>
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:10px;color:var(--text3)">${timeAgo(sig.time)}</span>
             <div class="signal-side ${sideClass}">${sideLabel}</div>
           </div>
         </div>
-        <div class="signal-score-bar">
+        <div class="signal-score-bar" style="margin:6px 0">
           <div class="signal-score-fill ${fillClass}" style="width:${pct}%"></div>
         </div>
-        <div style="font-size:10px;color:var(--text3)">Skor: ${score >= 0 ? "+" : ""}${score.toFixed(3)} · ${sig.strength || ""}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px">
+          <span style="color:${scoreColor};font-weight:600">Skor: ${score >= 0 ? "+" : ""}${score.toFixed(3)}</span>
+          <span style="color:var(--text3)">${sig.strength || "zayıf"} ${sig.strategy ? "· "+sig.strategy : ""}</span>
+        </div>
+        ${sig.details && sig.details.length ? `
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
+          ${sig.details.slice(0,3).map(d => `<div style="font-size:9px;color:var(--text3);line-height:1.6">${d}</div>`).join("")}
+        </div>` : ""}
       </div>`;
+  }).join("");
+}
+
+function renderSymbolScoreBar(scores) {
+  const el = document.getElementById("symbol-score-bar");
+  if (!el) return;
+  const syms = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT"];
+  if (!scores || !Object.keys(scores).length) {
+    el.innerHTML = syms.map(sym => `
+      <div class="sym-score-item">
+        <div class="sym-score-name">${sym.replace("USDT","")}</div>
+        <div class="sym-score-val" style="color:var(--text3)">Bekleniyor</div>
+      </div>`).join("");
+    return;
+  }
+  el.innerHTML = syms.map(sym => {
+    const s = scores[sym];
+    if (!s) return `<div class="sym-score-item">
+      <div class="sym-score-name">${sym.replace("USDT","")}</div>
+      <div class="sym-score-val" style="color:var(--text3)">–</div>
+    </div>`;
+    const score = parseFloat(s.score || 0);
+    const abs = Math.abs(score);
+    const col = abs > 0.5 ? (score>0?"var(--green)":"var(--red)") :
+                abs > 0.2 ? (score>0?"#7ec850":"#cc6644") : "var(--text3)";
+    const arrow = score > 0.2 ? "▲" : score < -0.2 ? "▼" : "◆";
+    const bgCol = abs > 0.4 ? (score>0?"rgba(0,230,118,0.08)":"rgba(255,61,87,0.08)") : "transparent";
+    const barPct = Math.min(abs / 0.75 * 100, 100).toFixed(0);
+    return `<div class="sym-score-item" style="background:${bgCol};border-radius:6px;cursor:pointer;position:relative;overflow:hidden"
+      onclick="document.getElementById('test-symbol').value='${sym}';ctrlUpdateTestPreview();showToast('${sym} seçildi','info')">
+      <div style="position:absolute;bottom:0;left:0;height:2px;width:${barPct}%;background:${col};transition:width 0.5s"></div>
+      <div class="sym-score-name">${sym.replace("USDT","")}</div>
+      <div class="sym-score-val" style="color:${col}">${arrow} ${score >= 0?"+":""}${score.toFixed(3)}</div>
+      <div style="font-size:8px;color:${col};margin-top:2px">${s.strength||"–"}</div>
+    </div>`;
   }).join("");
 }
 

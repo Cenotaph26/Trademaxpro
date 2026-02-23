@@ -1,6 +1,12 @@
 """
 Risk Engine — Bot'un kalkanı.
 Tüm stratejiler buradan geçmeden emir atamaz.
+
+v9 DÜZELTMELERİ:
+- MAX_SAME_DIRECTION kontrolü kaldırıldı (farklı coinde hem LONG hem SHORT serbestçe açılabilir)
+- MAX_OPEN_POSITIONS varsayılanı artırıldı (settings'ten gelir, ama kontrol daha esnek)
+- update_position_counts: Binance'den canlı veriyle senkronize
+- Aynı sembolde zaten o yönde pozisyon varsa engelle (isteğe bağlı, pasif)
 """
 import asyncio
 import logging
@@ -51,6 +57,8 @@ class RiskState:
     short_count: int = 0
     open_count: int = 0
     current_mode: RiskMode = RiskMode.NORMAL
+    # Sembol → yön haritası (aynı sembolde çift pozisyon önlemek için)
+    open_symbols: dict = field(default_factory=dict)  # {symbol: "LONG" | "SHORT"}
 
 
 class RiskEngine:
@@ -66,7 +74,6 @@ class RiskEngine:
             self.state.kill_switch_active = True
             self.state.kill_switch_reason = reason
             logger.critical(f"🚨 KILL SWITCH AKTİF: {reason.value}")
-            # Telegram bildirimi strategy_manager üzerinden gelecek
 
     def deactivate_kill_switch(self):
         self.state.kill_switch_active = False
@@ -75,8 +82,20 @@ class RiskEngine:
 
     # ─── Pre-trade checks ─────────────────────────────────────────
 
-    def can_trade(self, side: str) -> tuple[bool, str]:
-        """Bir emir atılabilir mi? (True/False, neden)"""
+    def can_trade(self, side: str, symbol: str = "") -> tuple[bool, str]:
+        """
+        Bir emir atılabilir mi? (True/False, neden)
+
+        Kontroller:
+        1. Kill switch
+        2. Günlük max kayıp
+        3. Max açık pozisyon (toplam)
+        4. Max drawdown
+        
+        KALDIRILDI:
+        - MAX_SAME_DIRECTION: Farklı coinlerde hem LONG hem SHORT açılabilir
+        - Aynı sembol-yön kontrolü pasif (override mümkün)
+        """
         s = self.state
 
         if s.kill_switch_active:
@@ -94,15 +113,10 @@ class RiskEngine:
             if daily_loss_pct >= self.s.DAILY_MAX_LOSS_PCT:
                 return False, f"Günlük max kayıp aşıldı: {daily_loss_pct:.2f}%"
 
-        # Max open positions
-        if s.open_count >= self.s.MAX_OPEN_POSITIONS:
-            return False, f"Max açık pozisyon: {s.open_count}/{self.s.MAX_OPEN_POSITIONS}"
-
-        # Same direction limit
-        if side.upper() == "BUY" and s.long_count >= self.s.MAX_SAME_DIRECTION:
-            return False, f"Max aynı yönde long: {s.long_count}"
-        if side.upper() == "SELL" and s.short_count >= self.s.MAX_SAME_DIRECTION:
-            return False, f"Max aynı yönde short: {s.short_count}"
+        # Max open positions — sadece toplam limit (yön limiti YOK)
+        max_pos = getattr(self.s, "MAX_OPEN_POSITIONS", 10)
+        if s.open_count >= max_pos:
+            return False, f"Max açık pozisyon: {s.open_count}/{max_pos}"
 
         # Drawdown
         if s.current_drawdown_pct >= self.s.MAX_DRAWDOWN_PCT:
@@ -118,10 +132,9 @@ class RiskEngine:
             RiskMode.AGGRESSIVE: self.s.LEV_AGGRESSIVE,
         }[mode]
 
-        # Yüksek volatilitede kaldıraç düşür
-        if atr_pct > 0.03:      # ATR > %3
+        if atr_pct > 0.03:
             return max(1, base - 2)
-        elif atr_pct > 0.015:   # ATR > %1.5
+        elif atr_pct > 0.015:
             return max(1, base - 1)
         return base
 
@@ -133,12 +146,12 @@ class RiskEngine:
         size = (equity * risk_pct) / (|entry - sl| / entry)
         """
         risk_amount = equity * (self.s.RISK_PER_TRADE_PCT / 100)
-        sl_distance_pct = abs(entry - stop_loss) / entry
+        sl_distance_pct = abs(entry - stop_loss) / entry if entry > 0 else 0.015
         if sl_distance_pct < 0.001:
             sl_distance_pct = 0.001
         notional = risk_amount / sl_distance_pct
-        quantity = notional / entry
-        return round(quantity, 4)
+        quantity = notional / entry if entry > 0 else 0
+        return round(quantity, 6)
 
     # ─── Post-trade update ────────────────────────────────────────
 
@@ -152,11 +165,9 @@ class RiskEngine:
             else:
                 self.state.consecutive_losses = 0
 
-            # Kill switch: consecutive loss
             if self.state.consecutive_losses >= self.s.KILL_SWITCH_CONSECUTIVE_LOSS:
                 self.activate_kill_switch(KillSwitchReason.CONSECUTIVE_LOSS)
 
-            # Kill switch: slippage
             if record.slippage_pct > self.s.KILL_SWITCH_SLIPPAGE_PCT:
                 self.activate_kill_switch(KillSwitchReason.SLIPPAGE)
 
@@ -169,14 +180,20 @@ class RiskEngine:
                 self.state.current_drawdown_pct = (
                     (self.state.peak_equity - equity) / self.state.peak_equity * 100
                 )
-            # Kill switch: drawdown
             if self.state.current_drawdown_pct >= self.s.MAX_DRAWDOWN_PCT:
                 self.activate_kill_switch(KillSwitchReason.MAX_DRAWDOWN)
 
-    def update_position_counts(self, long_count: int, short_count: int):
+    def update_position_counts(self, long_count: int, short_count: int,
+                                open_symbols: dict = None):
+        """
+        Canlı pozisyon sayılarını güncelle.
+        open_symbols: {symbol: "LONG"|"SHORT"} — sembol bazlı takip için
+        """
         self.state.long_count = long_count
         self.state.short_count = short_count
         self.state.open_count = long_count + short_count
+        if open_symbols is not None:
+            self.state.open_symbols = open_symbols
 
     # ─── Stats ────────────────────────────────────────────────────
 
@@ -214,7 +231,6 @@ class RiskEngine:
         while True:
             await asyncio.sleep(30)
             try:
-                # Equity güncellemesi main loop'tan gelir; burada sadece log
                 stats = self.get_stats()
                 if self.state.kill_switch_active:
                     logger.warning(f"⛔ Kill switch aktif: {self.state.kill_switch_reason}")

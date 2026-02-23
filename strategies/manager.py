@@ -96,7 +96,14 @@ class StrategyManager:
             return {"ok": False, "reason": msg}
 
         # ── 2. Risk engine check ───────────────────────────────────
-        can, reason = self.risk.can_trade(side)
+        # Önce pozisyon sayılarını ve equity'yi güncelle
+        await self._update_position_counts(symbol)
+        try:
+            bal = await self.data.get_balance()
+            await self.risk.update_equity(bal.get("total", 0))
+        except Exception:
+            pass
+        can, reason = self.risk.can_trade(side, symbol)
         if not can:
             return {"ok": False, "reason": reason}
 
@@ -105,9 +112,13 @@ class StrategyManager:
         decision = None
         if self.rl_agent and not is_manual:
             decision = self.rl_agent.decide()
-            logger.info(f"🤖 RL: {decision.strategy} | {decision.risk_mode} | trade={decision.trade_allowed}")
-            if not decision.trade_allowed:
+            # RL henüz eğitilmemişse (epsilon >= 0.5) trade_allowed'ı ignore et
+            if not decision.trade_allowed and self.rl_agent.epsilon < 0.5:
+                logger.info(f"🤖 RL engelledi: trade_allowed=0 (ε={self.rl_agent.epsilon:.3f})")
                 return {"ok": False, "reason": "RL agent: trade_allowed=0"}
+            elif not decision.trade_allowed:
+                logger.info(f"🤖 RL eğitim aşaması (ε={self.rl_agent.epsilon:.3f}) — bypass")
+            logger.info(f"🤖 RL: {decision.strategy} | {decision.risk_mode} | trade={decision.trade_allowed}")
 
         risk_mode_str = decision.risk_mode if decision else "normal"
         actual_leverage = leverage  # dashboard'dan gelen kaldıracı kullan
@@ -200,12 +211,25 @@ class StrategyManager:
         logger.info(f"{'✅' if ok else '❌'} İşlem {'açıldı' if ok else 'başarısız'}: {symbol} {side}")
         return {"ok": ok, "symbol": symbol, "side": side, "leverage": actual_leverage}
 
-    async def _update_position_counts(self, symbol: str):
+    async def _update_position_counts(self, symbol: str = ""):
         try:
             all_pos = await self.data.exchange.fetch_positions()
-            longs  = sum(1 for p in all_pos if float(p.get("contracts") or 0) > 0)
-            shorts = sum(1 for p in all_pos if float(p.get("contracts") or 0) < 0)
-            self.risk.update_position_counts(longs, shorts)
+            longs = 0
+            shorts = 0
+            sym_map = {}
+            for p in all_pos:
+                contracts = float(p.get("contracts") or p.get("info", {}).get("positionAmt") or 0)
+                if abs(contracts) < 1e-9:
+                    continue
+                psym = p.get("symbol", "")
+                direction = "LONG" if contracts > 0 else "SHORT"
+                if contracts > 0:
+                    longs += 1
+                else:
+                    shorts += 1
+                sym_map[psym] = direction
+            self.risk.update_position_counts(longs, shorts, sym_map)
+            logger.debug(f"Pozisyon sayıları güncellendi: LONG={longs} SHORT={shorts} toplam={longs+shorts}")
         except Exception as e:
             logger.warning(f"Pozisyon sayısı güncellenemedi: {e}")
 
@@ -248,6 +272,12 @@ class StrategyManager:
         except Exception as e:
             logger.error(f"close_position hatası [{symbol}]: {e}", exc_info=True)
             return {"ok": False, "reason": str(e)}
+        finally:
+            # Kapatma sonrası sayaçları güncelle
+            try:
+                await self._update_position_counts()
+            except Exception:
+                pass
 
     async def close_all_positions(self):
         """Bot kapatılırken tüm pozisyonları temizle."""

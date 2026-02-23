@@ -23,8 +23,8 @@ class Settings(BaseSettings):
 
     # ── Risk Engine ───────────────────────────────────────────────
     DAILY_MAX_LOSS_PCT: float = Field(default=2.0, env="DAILY_MAX_LOSS_PCT")   # % bakiyeden
-    MAX_OPEN_POSITIONS: int = Field(default=3, env="MAX_OPEN_POSITIONS")
-    MAX_SAME_DIRECTION: int = Field(default=2, env="MAX_SAME_DIRECTION")       # aynı yönde max
+    MAX_OPEN_POSITIONS: int = Field(default=10, env="MAX_OPEN_POSITIONS")
+    MAX_SAME_DIRECTION: int = Field(default=10, env="MAX_SAME_DIRECTION")       # artık risk engine'de kullanılmıyor
     MAX_DRAWDOWN_PCT: float = Field(default=5.0, env="MAX_DRAWDOWN_PCT")
     KILL_SWITCH_CONSECUTIVE_LOSS: int = Field(default=5, env="KILL_SWITCH_CONSECUTIVE_LOSS")
     KILL_SWITCH_SLIPPAGE_PCT: float = Field(default=0.5, env="KILL_SWITCH_SLIPPAGE_PCT")

@@ -225,12 +225,14 @@ class AutoSignalEngine:
         self.s = settings
         self._running = False
         self.last_signal: Optional[dict] = None
+        self.signal_history: list = []      # Son 50 sinyal geçmişi
+        self.symbol_scores: dict = {}       # Her sembolün son skoru
         self.signal_count = 0
-        self.scan_interval = 15 * 60  # 15 dakika
+        self.scan_interval = 5 * 60   # 5 dakikada bir tara (sinyal sayısı artar)
 
         # ── Cooldown: aynı sembol için min 4 saat bekleme ──────────
         self._last_trade_time: dict = {}   # symbol → datetime
-        self._cooldown_hours = 4
+        self._cooldown_hours = 1   # Saat başı tara
 
         # ── Multi-symbol mod ──────────────────────────────────────
         top_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
@@ -249,7 +251,7 @@ class AutoSignalEngine:
             f"(interval={self.scan_interval//60}dk, "
             f"semboller={self._target_symbols})"
         )
-        await asyncio.sleep(30)   # Veri yüklenmesini bekle
+        await asyncio.sleep(10)   # Veri yüklenmesini bekle
         while self._running:
             try:
                 await self._scan_all_symbols()
@@ -455,16 +457,23 @@ class AutoSignalEngine:
         for detail in score.details:
             logger.info(f"   → {detail}")
 
+        # Her durumda sembol skoru kaydet (dashboard için)
+        entry = {
+            "time": datetime.now(timezone.utc).isoformat(),
+            "symbol": symbol,
+            "side": side,
+            "score": round(total, 3),
+            "strength": score.strength,
+            "details": score.details,
+        }
+        self.symbol_scores[symbol] = entry
+        self.signal_history.insert(0, entry)
+        if len(self.signal_history) > 50:
+            self.signal_history = self.signal_history[:50]
+        self.last_signal = entry
+
         if side is None:
             logger.info("⏭ Yeterli sinyal yok, işlem atlandı")
-            self.last_signal = {
-                "time": datetime.now(timezone.utc).isoformat(),
-                "symbol": symbol,
-                "side": None,
-                "score": round(total, 3),
-                "strength": score.strength,
-                "details": score.details,
-            }
             return
 
         # ── RL Agent Denetimi ─────────────────────────────────────
@@ -520,18 +529,15 @@ class AutoSignalEngine:
 
         # ── Sonuç kaydet ──────────────────────────────────────────
         self.signal_count += 1
-        self._set_cooldown(symbol)   # Cooldown başlat
+        # Cooldown sadece başarılı işlemde başlasın
+        ok = result.get("ok") if isinstance(result, dict) else bool(result)
+        if ok:
+            self._set_cooldown(symbol)
 
-        self.last_signal = {
-            "time": datetime.now(timezone.utc).isoformat(),
-            "symbol": symbol,
-            "side": side,
-            "score": round(total, 3),
-            "strength": score.strength,
-            "strategy": result.get("strategy") if isinstance(result, dict) else None,
-            "ok": result.get("ok") if isinstance(result, dict) else False,
-            "details": score.details,
-        }
+        # Son sinyali işlem sonucuyla güncelle
+        self.last_signal["strategy"] = result.get("strategy") if isinstance(result, dict) else None
+        self.last_signal["ok"] = result.get("ok") if isinstance(result, dict) else False
+        self.signal_history[0].update(self.last_signal)
 
         if isinstance(result, dict) and result.get("ok"):
             logger.info(f"✅ İşlem açıldı: {result}")
@@ -548,6 +554,8 @@ class AutoSignalEngine:
             "signal_count": self.signal_count,
             "trade_count": self.signal_count,
             "last_signal": self.last_signal,
+            "signal_history": self.signal_history[:20],   # Son 20 sinyal
+            "symbol_scores": self.symbol_scores,           # Tüm semboller son skor
             "cooldowns": {
                 sym: self._last_trade_time[sym].isoformat()
                 for sym in self._last_trade_time
