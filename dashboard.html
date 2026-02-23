@@ -1612,56 +1612,65 @@ async function refreshStatus() {
     document.getElementById("conn-dot").className = "dot online";
     document.getElementById("conn-label").textContent = "Online";
 
+    // Helper fonksiyonlar — null-safe DOM güncelleme
+    const _s = (id) => document.getElementById(id);
+    const _set = (id, val) => { const el = _s(id); if (el) el.textContent = val; };
+
     // Header
     const bal = data.balance ?? data.wallet_balance ?? 0;
-    document.getElementById("header-balance").textContent = "$" + parseFloat(bal).toFixed(2);
+    _set("header-balance", "$" + parseFloat(bal).toFixed(2));
 
-    // Stats
-    document.getElementById("balance-val").textContent = "$" + parseFloat(bal).toFixed(2);
+    // Stats — null-safe
+    _set("balance-val", "$" + parseFloat(bal).toFixed(2));
     const pnl = data.unrealized_pnl ?? data.total_pnl ?? 0;
-    const pnlEl = document.getElementById("pnl-val");
-    pnlEl.textContent = fmtUSD(pnl);
-    pnlEl.className = "stat-val " + colorClass(pnl);
+    const pnlEl = _s("pnl-val");
+    if (pnlEl) {
+      pnlEl.textContent = fmtUSD(pnl);
+      pnlEl.className = "stat-val " + colorClass(pnl);
+    }
 
     const pnlPct = bal > 0 ? (pnl / bal * 100) : 0;
-    document.getElementById("pnl-pct").textContent = (pnlPct >= 0 ? "+" : "") + pnlPct.toFixed(2) + "%";
+    _set("pnl-pct", (pnlPct >= 0 ? "+" : "") + pnlPct.toFixed(2) + "%");
 
-    document.getElementById("open-pos-val").textContent = data.open_positions ?? 0;
-    document.getElementById("daily-trades-val").textContent = data.daily_trades ?? 0;
+    _set("open-pos-val", data.open_positions ?? 0);
+    _set("daily-trades-val", data.daily_trades ?? 0);
 
-    // New stats elements
-    const dt2 = document.getElementById("daily-trades-val2");
+    const dt2 = _s("daily-trades-val2");
     if (dt2) dt2.textContent = data.daily_trades ?? 0;
     const risk = data.risk ?? {};
-    const marginEl = document.getElementById("margin-val2");
+    const marginEl = _s("margin-val2");
     if (marginEl) marginEl.textContent = (parseFloat(risk.margin_usage_pct || data.margin_usage_pct || 0)).toFixed(1) + "%";
-    const maxPosEl = document.getElementById("max-pos-sub");
+    const maxPosEl = _s("max-pos-sub");
     if (maxPosEl) maxPosEl.textContent = "Maks " + (risk.max_positions || 5) + " pozisyon";
 
     // Update header stats
     updateHeaderStats(data);
 
     const dailyPnl = data.daily_pnl ?? 0;
-    const dailySub = document.getElementById("daily-pnl-sub");
-    dailySub.textContent = fmtUSD(dailyPnl);
-    dailySub.style.color = dailyPnl >= 0 ? "var(--green)" : "var(--red)";
+    const dailySub = _s("daily-pnl-sub");
+    if (dailySub) {
+      dailySub.textContent = fmtUSD(dailyPnl);
+      dailySub.style.color = dailyPnl >= 0 ? "var(--green)" : "var(--red)";
+    }
 
     // Signal engine
     const se = data.signal_engine ?? {};
-    document.getElementById("signal-count-val").textContent = se.signal_count ?? 0;
-    document.getElementById("agent-trade-count").textContent = se.signal_count ?? 0;
-    document.getElementById("agent-scan-interval").textContent = (se.scan_interval_min ?? 15) + " dk";
+    _set("signal-count-val", se.signal_count ?? 0);
+    _set("agent-trade-count", se.signal_count ?? 0);
+    _set("agent-scan-interval", (se.scan_interval_min ?? 15) + " dk");
 
     if (se.running !== undefined) {
       state.agentRunning = se.running;
-      document.getElementById("agent-toggle").checked = se.running;
-      const agentStatusEl = document.getElementById("agent-status-val");
-      agentStatusEl.textContent = se.running ? "Aktif" : "Pasif";
-      agentStatusEl.style.color = se.running ? "var(--green)" : "var(--text3)";
-      // Kontrol paneli güncelle
-      const ctrlToggle = document.getElementById("ctrl-agent-toggle");
+      const agentToggle = _s("agent-toggle");
+      if (agentToggle) agentToggle.checked = se.running;
+      const agentStatusEl = _s("agent-status-val");
+      if (agentStatusEl) {
+        agentStatusEl.textContent = se.running ? "Aktif" : "Pasif";
+        agentStatusEl.style.color = se.running ? "var(--green)" : "var(--text3)";
+      }
+      const ctrlToggle = _s("ctrl-agent-toggle");
       if (ctrlToggle) ctrlToggle.checked = se.running;
-      const ctrlStatusText = document.getElementById("ctrl-agent-status-text");
+      const ctrlStatusText = _s("ctrl-agent-status-text");
       if (ctrlStatusText) {
         ctrlStatusText.textContent = se.running ? "✅ Ajan çalışıyor" : "⏹ Ajan durduruldu";
         ctrlStatusText.style.color = se.running ? "var(--green)" : "var(--text3)";
@@ -1670,7 +1679,7 @@ async function refreshStatus() {
 
     // RL agent
     const rl = data.rl_agent ?? {};
-    document.getElementById("agent-epsilon").textContent = rl.epsilon !== undefined ? fmt(rl.epsilon, 3) : "–";
+    _set("agent-epsilon", rl.epsilon !== undefined ? fmt(rl.epsilon, 3) : "–");
 
     // Sinyaller sekmesi ajan paneli güncelle
     const sigStatus = document.getElementById("sig-agent-status");
@@ -1686,21 +1695,22 @@ async function refreshStatus() {
 
     // Regime
     const regime = data.regime ?? data.market_regime ?? "–";
-    const regimeEl = document.getElementById("regime-val");
-    regimeEl.textContent = regime;
-    regimeEl.className = "stat-val";
-    if (regime === "trend")    regimeEl.style.color = "var(--green)";
-    else if (regime === "range") regimeEl.style.color = "var(--yellow)";
-    else regimeEl.style.color = "var(--text)";
+    const regimeEl = _s("regime-val");
+    if (regimeEl) {
+      regimeEl.textContent = regime;
+      regimeEl.style.color = regime === "trend" ? "var(--green)"
+                           : regime === "range" ? "var(--yellow)"
+                           : "var(--text)";
+    }
 
     const atrVal = data.atr_14 ?? data.atr ?? 0;
-    document.getElementById("atr-sub").textContent = "ATR: " + fmtPrice(atrVal);
+    _set("atr-sub", "ATR: " + fmtPrice(atrVal));
 
     // Price
     const price = data.mark_price ?? data.last_price ?? 0;
     if (price) {
       state.price = price;
-      document.getElementById("current-price").textContent = fmtPrice(price);
+      _set("current-price", fmtPrice(price));
       updatePnLPreview();
     }
 
@@ -1824,7 +1834,7 @@ async function refreshOverviewPositions() {
 
     const list = document.getElementById("overview-positions-list");
     const wrap = document.getElementById("overview-positions-wrap");
-    document.getElementById("open-pos-val").textContent = positions.length;
+    const _opv = document.getElementById("open-pos-val"); if (_opv) _opv.textContent = positions.length;
 
     if (!positions.length) {
       if (wrap) wrap.style.display = "none";
@@ -1883,7 +1893,7 @@ async function loadPositions() {
 
   const positions = result.positions || [];
   state.positions = positions;
-  document.getElementById("open-pos-val").textContent = positions.length;
+  const _opv = document.getElementById("open-pos-val"); if (_opv) _opv.textContent = positions.length;
 
   // Toplam PNL hesapla
   const totalPnl = positions.reduce((s, p) => s + parseFloat(p.unrealized_pnl ?? 0), 0);
