@@ -3,1441 +3,2090 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AI Trading Bot — Trademaxpro</title>
+<title>TRADEMAXPRO — AI Futures Engine</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500;600&family=Orbitron:wght@400;600;700;900&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg:      #060810;
-    --bg2:     #0b0e1a;
-    --bg3:     #101422;
-    --bg4:     #151928;
-    --border:  #1a2035;
-    --border2: #222840;
-    --text:    #d0e0f0;
-    --text2:   #6080a0;
-    --text3:   #304060;
-    --green:   #00ff88;
-    --green2:  #00cc66;
-    --red:     #ff3366;
-    --red2:    #cc2255;
-    --cyan:    #00d4ff;
-    --yellow:  #ffcc00;
-    --orange:  #ff8800;
-    --purple:  #8844ff;
-    --mono:    'Share Tech Mono', monospace;
-    --sans:    'Rajdhani', sans-serif;
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 12px;
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
-  ::-webkit-scrollbar { width: 3px; height: 3px; }
-  ::-webkit-scrollbar-track { background: var(--bg2); }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-
-  /* ── Ticker Bar ── */
-  .ticker-bar {
-    background: #000;
-    border-bottom: 1px solid var(--border);
-    padding: 4px 16px;
-    overflow: hidden;
-    white-space: nowrap;
-    font-size: 11px;
-    display: flex;
-    gap: 24px;
-    align-items: center;
-  }
-  .ticker-item { display: inline-flex; gap: 6px; align-items: center; }
-  .ticker-sym { color: var(--text2); }
-  .ticker-price { color: var(--text); font-weight: 600; }
-  .ticker-chg.pos { color: var(--green); }
-  .ticker-chg.neg { color: var(--red); }
-
-  /* ── Header ── */
-  header {
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
-    padding: 8px 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-
-  .logo {
-    font-family: var(--sans);
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    color: var(--cyan);
-    text-transform: uppercase;
-  }
-  .logo small { color: var(--text2); font-size: 10px; font-weight: 400; display: block; letter-spacing: 3px; margin-top: -2px; }
-
-  .header-meta {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    font-size: 12px;
-  }
-
-  .hm-stat { text-align: center; }
-  .hm-label { color: var(--text3); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
-  .hm-value { font-family: var(--sans); font-size: 16px; font-weight: 700; }
-
-  .header-controls { display: flex; align-items: center; gap: 12px; }
-  .status-pill {
-    display: flex; align-items: center; gap: 5px;
-    background: rgba(0,255,136,0.08);
-    border: 1px solid rgba(0,255,136,0.2);
-    border-radius: 20px;
-    padding: 3px 10px;
-    font-size: 10px; color: var(--green);
-  }
-  .status-dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--green);
-    animation: pulse 2s infinite;
-  }
-  .status-dot.offline { background: var(--red); animation: none; }
-  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
-
-  .btn-start {
-    background: rgba(0,212,255,0.1);
-    border: 1px solid var(--cyan);
-    color: var(--cyan);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 5px 14px;
-    border-radius: 4px;
-    cursor: pointer;
-    letter-spacing: 0.05em;
-  }
-  .btn-stop {
-    background: rgba(255,51,102,0.1);
-    border: 1px solid var(--red);
-    color: var(--red);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 5px 14px;
-    border-radius: 4px;
-    cursor: pointer;
-    letter-spacing: 0.05em;
-  }
-
-  /* ── Stats Bar ── */
-  .stats-bar {
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    gap: 0;
-  }
-
-  .stat-item {
-    padding: 10px 16px;
-    border-right: 1px solid var(--border);
-  }
-  .stat-item:last-child { border-right: none; }
-  .stat-lbl { font-size: 9px; color: var(--text3); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 3px; }
-  .stat-val {
-    font-family: var(--sans);
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1;
-  }
-  .stat-sub { font-size: 10px; color: var(--text3); margin-top: 2px; }
-  .stat-val.cyan { color: var(--cyan); }
-  .stat-val.green { color: var(--green); }
-  .stat-val.red { color: var(--red); }
-  .stat-val.yellow { color: var(--yellow); }
-  .stat-val.purple { color: var(--purple); }
-
-  /* ── Main Layout ── */
-  .main-layout {
-    display: grid;
-    grid-template-columns: 1fr 360px 280px;
-    height: calc(100vh - 112px);
-    overflow: hidden;
-  }
-
-  /* ── Center Panel ── */
-  .center-panel {
-    border-right: 1px solid var(--border);
-    overflow-y: auto;
-    padding: 16px;
-  }
-
-  /* ── Tabs ── */
-  .tabs {
-    display: flex;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 16px;
-    gap: 0;
-  }
-  .tab {
-    padding: 8px 16px;
-    font-family: var(--sans);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text3);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    transition: all 0.15s;
-  }
-  .tab:hover { color: var(--text2); }
-  .tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
-
-  .panel-content { display: none; }
-  .panel-content.active { display: block; }
-
-  /* ── Market Grid ── */
-  .piyasa-header {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 12px;
-    align-items: center;
-  }
-  .piyasa-header input {
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 5px 10px;
-    border-radius: 4px;
-    flex: 1;
-    outline: none;
-  }
-  .sort-btn {
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    color: var(--text2);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 5px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .sort-btn.active { border-color: var(--cyan); color: var(--cyan); }
-
-  .coin-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-    gap: 4px;
-  }
-  .coin-cell {
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 8px;
-    cursor: pointer;
-    transition: border-color 0.15s;
-  }
-  .coin-cell:hover { border-color: var(--border2); background: var(--bg4); }
-  .coin-cell.selected { border-color: var(--cyan) !important; background: rgba(0,212,255,0.06) !important; }
-  .coin-sym { font-family: var(--sans); font-size: 12px; font-weight: 600; color: var(--text); }
-  .coin-price { font-size: 10px; color: var(--text2); margin-top: 1px; }
-  .coin-chg { font-size: 11px; font-weight: 600; margin-top: 2px; }
-  .coin-chg.pos { color: var(--green); }
-  .coin-chg.neg { color: var(--red); }
-
-  /* ── Chart + Strategy Area ── */
-  .chart-area {
-    margin-top: 12px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-
-  .chart-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .chart-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-  }
-  .chart-sym { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--text); }
-  .chart-body { padding: 12px; min-height: 180px; display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 11px; }
-
-  .period-btns { display: flex; gap: 2px; }
-  .period-btn {
-    background: none; border: none;
-    color: var(--text3); font-family: var(--mono); font-size: 10px;
-    padding: 2px 6px; cursor: pointer; border-radius: 3px;
-  }
-  .period-btn.active { background: var(--bg4); color: var(--cyan); }
-
-  .chart-body { padding: 0; min-height: 320px; position: relative; }
-  .tv-chart { width: 100%; height: 320px; }
-  .chart-placeholder {
-    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: 8px; color: var(--text3); font-size: 11px;
-    pointer-events: none;
-  }
-
-  .bloomberg-panel {
-    margin-top: 12px;
-    background: linear-gradient(180deg, rgba(17,20,40,0.95), rgba(8,10,24,0.95));
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .bb-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 12px; border-bottom: 1px solid var(--border);
-  }
-  .bb-title { font-family: var(--sans); font-weight: 700; font-size: 12px; color: #ffb347; letter-spacing: .08em; text-transform: uppercase; }
-  .bb-sub { font-size: 10px; color: var(--text3); }
-  .bb-grid { display: grid; grid-template-columns: 1.2fr .8fr .8fr .8fr; gap: 0; }
-  .bb-cell { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 11px; }
-  .bb-head { background: rgba(255,255,255,0.02); color: var(--text3); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
-  .bb-sym { color: var(--text); font-weight: 600; }
-  .bb-pos { color: var(--green); font-weight: 700; }
-  .bb-neg { color: var(--red); font-weight: 700; }
-
-  /* ── Strategy Section ── */
-  .strategy-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .strategy-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-  }
-  .strategy-title { font-family: var(--sans); font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: 0.05em; text-transform: uppercase; }
-  .live-badge {
-    background: rgba(0,255,136,0.1);
-    border: 1px solid rgba(0,255,136,0.3);
-    color: var(--green);
-    font-size: 9px;
-    padding: 2px 7px;
-    border-radius: 3px;
-    letter-spacing: 0.1em;
-  }
-  .best-badge {
-    background: rgba(0,212,255,0.1);
-    border: 1px solid rgba(0,212,255,0.3);
-    color: var(--cyan);
-    font-size: 9px;
-    padding: 2px 7px;
-    border-radius: 3px;
-  }
-
-  .strategy-list { padding: 10px 12px; }
-  .strategy-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .strategy-row:last-child { border-bottom: none; }
-  .strat-name { font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; }
-  .strat-trades { font-size: 10px; color: var(--text3); }
-  .strat-bar-wrap { flex: 1; margin: 0 12px; }
-  .strat-bar-bg { height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; }
-  .strat-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
-  .strat-wr { font-size: 10px; color: var(--text2); white-space: nowrap; }
-  .strat-pf { font-family: var(--sans); font-size: 13px; font-weight: 700; color: var(--green); }
-
-  /* ── Right Panel (Trade + Agent) ── */
-  .right-panel {
-    border-right: 1px solid var(--border);
-    overflow-y: auto;
-    background: var(--bg2);
-  }
-
-  .trade-form {
-    padding: 14px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .form-title {
-    font-family: var(--sans);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-bottom: 10px;
-  }
-
-  .symbol-display {
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    border-radius: 5px;
-    padding: 10px 12px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: pointer;
-    margin-bottom: 10px;
-    transition: border-color 0.15s;
-  }
-  .symbol-display:hover { border-color: var(--cyan); }
-  .symbol-name { font-family: var(--sans); font-size: 15px; font-weight: 700; color: var(--text); }
-  .symbol-price { font-family: var(--sans); font-size: 15px; font-weight: 700; color: var(--cyan); }
-
-  .form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .form-group { display: flex; flex-direction: column; gap: 3px; }
-  .form-label { font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; }
-
-  input[type="number"], input[type="text"], select {
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 6px 8px;
-    border-radius: 4px;
-    outline: none;
-    width: 100%;
-    transition: border-color 0.15s;
-  }
-  input:focus, select:focus { border-color: var(--cyan); }
-  select option { background: var(--bg3); }
-
-  .pnl-preview-row {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: 10px;
-  }
-  .pnl-preview-label { font-size: 10px; color: var(--text3); margin-right: 6px; }
-  #pnl-preview { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--green); }
-
-  .btn-long {
-    width: 100%;
-    padding: 11px;
-    background: var(--green);
-    border: none;
-    color: #000;
-    font-family: var(--sans);
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    border-radius: 5px;
-    cursor: pointer;
-    margin-bottom: 6px;
-    transition: opacity 0.15s;
-    display: flex; align-items: center; justify-content: center; gap: 6px;
-  }
-  .btn-long:hover { opacity: 0.85; }
-  .btn-short {
-    width: 100%;
-    padding: 11px;
-    background: var(--red);
-    border: none;
-    color: #fff;
-    font-family: var(--sans);
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: opacity 0.15s;
-    display: flex; align-items: center; justify-content: center; gap: 6px;
-  }
-  .btn-short:hover { opacity: 0.85; }
-
-  /* ── Agent Section ── */
-  .agent-section {
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .agent-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-  }
-  .agent-label { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text3); }
-
-  .toggle-switch { position: relative; width: 38px; height: 20px; flex-shrink: 0; }
-  .toggle-switch input { opacity: 0; width: 0; height: 0; }
-  .toggle-slider {
-    position: absolute; inset: 0;
-    background: var(--bg4);
-    border: 1px solid var(--border2);
-    border-radius: 20px;
-    cursor: pointer;
-    transition: 0.2s;
-  }
-  .toggle-slider::before {
-    content: "";
-    position: absolute;
-    width: 14px; height: 14px;
-    left: 2px; top: 2px;
-    background: var(--text3);
-    border-radius: 50%;
-    transition: 0.2s;
-  }
-  input:checked + .toggle-slider { background: rgba(0,255,136,0.15); border-color: var(--green); }
-  input:checked + .toggle-slider::before { transform: translateX(18px); background: var(--green); }
-
-  .agent-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-  }
-  .agent-cell {
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 7px 9px;
-  }
-  .agent-cell-label { font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
-  .agent-cell-val { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--text); }
-
-  /* ── Positions in right panel ── */
-  .pos-section {
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border);
-  }
-  .section-title {
-    font-family: var(--sans);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .refresh-btn {
-    background: none; border: 1px solid var(--border2);
-    color: var(--text3); font-size: 10px; padding: 2px 8px;
-    border-radius: 3px; cursor: pointer; font-family: var(--mono);
-  }
-  .refresh-btn:hover { color: var(--text2); border-color: var(--text2); }
-
-  /* ── Market List (right side) ── */
-  .market-section {
-    padding: 12px 14px;
-  }
-  .market-search input {
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 6px 10px;
-    border-radius: 4px;
-    width: 100%;
-    outline: none;
-    margin-bottom: 8px;
-  }
-  .market-list { max-height: 300px; overflow-y: auto; }
-  .market-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 7px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-  .market-item:hover { background: var(--bg4); }
-  .market-sym { font-family: var(--sans); font-size: 12px; font-weight: 600; color: var(--text); }
-  .market-add-btn {
-    background: rgba(0,212,255,0.08);
-    border: 1px solid rgba(0,212,255,0.2);
-    color: var(--cyan);
-    font-family: var(--mono);
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 3px;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s;
-  }
-  .market-item:hover .market-add-btn { opacity: 1; }
-
-  /* ── Far Right: Logs/Signals Panel ── */
-  .far-right {
-    overflow-y: auto;
-    background: var(--bg);
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* positions tab in center panel */
-  .pos-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px;
-    margin-bottom: 8px;
-  }
-  .pos-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-  }
-  .pos-sym { font-family: var(--sans); font-size: 15px; font-weight: 700; color: var(--text); }
-  .side-badge {
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-family: var(--sans);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-  }
-  .side-badge.long { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); color: var(--green); }
-  .side-badge.short { background: rgba(255,51,102,0.1); border: 1px solid rgba(255,51,102,0.3); color: var(--red); }
-
-  /* ── Log Area ── */
-  .log-area {
-    flex: 1;
-    padding: 10px 12px;
-    overflow-y: auto;
-    font-size: 11px;
-    line-height: 1.6;
-  }
-  .log-line { padding: 1px 0; }
-  .log-line.info { color: var(--text2); }
-  .log-line.ok { color: var(--green); }
-  .log-line.warn { color: var(--yellow); }
-  .log-line.error { color: var(--red); }
-  .log-time { color: var(--text3); margin-right: 6px; }
-
-  .log-toolbar {
-    display: flex;
-    gap: 4px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
-    align-items: center;
-    background: var(--bg2);
-  }
-  .log-filter-btn {
-    background: none;
-    border: 1px solid var(--border2);
-    color: var(--text3);
-    font-family: var(--mono);
-    font-size: 10px;
-    padding: 3px 8px;
-    border-radius: 3px;
-    cursor: pointer;
-  }
-  .log-filter-btn.active { border-color: var(--cyan); color: var(--cyan); }
-  .log-filter-btn:hover { border-color: var(--text2); color: var(--text2); }
-
-  /* ── Signals in far-right ── */
-  .signal-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 10px 12px;
-    margin-bottom: 6px;
-  }
-  .signal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-  .signal-symbol { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--text); }
-  .signal-side {
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-family: var(--sans);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-  }
-  .signal-side.buy { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); color: var(--green); }
-  .signal-side.sell { background: rgba(255,51,102,0.1); border: 1px solid rgba(255,51,102,0.3); color: var(--red); }
-  .signal-side.none { background: var(--bg4); border: 1px solid var(--border2); color: var(--text3); }
-  .signal-score-bar { height: 2px; background: var(--border2); border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
-  .signal-score-fill { height: 100%; border-radius: 2px; }
-  .signal-score-fill.positive { background: var(--green); }
-  .signal-score-fill.negative { background: var(--red); }
-  .signal-detail-row { font-size: 10px; color: var(--text3); padding: 1px 0; }
-
-  /* ── Toast ── */
-  #toast-container {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 9999;
-    display: flex;
-    flex-direction: column-reverse;
-    gap: 8px;
-  }
-  .toast {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 14px;
-    border-radius: 5px;
-    font-size: 12px;
-    animation: fadeIn 0.3s ease;
-    min-width: 200px;
-    max-width: 320px;
-    backdrop-filter: blur(8px);
-  }
-  .toast.error   { background: rgba(255,51,102,0.15); border: 1px solid rgba(255,51,102,0.4); color: var(--red); }
-  .toast.success { background: rgba(0,255,136,0.12); border: 1px solid rgba(0,255,136,0.35); color: var(--green); }
-  .toast.info    { background: rgba(0,212,255,0.12); border: 1px solid rgba(0,212,255,0.3); color: var(--cyan); }
-  .toast.warn    { background: rgba(255,204,0,0.12); border: 1px solid rgba(255,204,0,0.3); color: var(--yellow); }
-  .toast-icon { font-size: 14px; }
-  @keyframes fadeIn { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
-  @keyframes fadeOut { from { opacity:1; } to { opacity:0; } }
-
-  /* ── Modal ── */
-  .modal-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.7);
-    z-index: 1000;
-    align-items: center;
-    justify-content: center;
-    backdrop-filter: blur(4px);
-  }
-  .modal-overlay.open { display: flex; }
-  .modal {
-    background: var(--bg2);
-    border: 1px solid var(--border2);
-    border-radius: 8px;
-    padding: 20px;
-    width: 340px;
-    position: relative;
-  }
-  .modal-close {
-    position: absolute; top: 12px; right: 12px;
-    background: none; border: none;
-    color: var(--text3); font-size: 16px; cursor: pointer;
-  }
-  .modal-title { font-family: var(--sans); font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 12px; }
-
-  /* ── Empty/Loading ── */
-  .empty-state { padding: 24px; text-align: center; color: var(--text3); }
-  .loading-text { color: var(--text3); font-size: 11px; display: flex; align-items: center; gap: 6px; }
-  .spinner {
-    width: 12px; height: 12px; border: 2px solid var(--border2);
-    border-top-color: var(--cyan); border-radius: 50%;
-    animation: spin 0.7s linear infinite; display: inline-block;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* ── Control Tab ── */
-  .ctrl-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 14px;
-    margin-bottom: 10px;
-  }
-  .ctrl-title {
-    font-family: var(--sans);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text2);
-    margin-bottom: 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .ctrl-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-  .ctrl-label { font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
-  .btn-primary {
-    background: rgba(0,212,255,0.12);
-    border: 1px solid var(--cyan);
-    color: var(--cyan);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 7px 14px;
-    border-radius: 4px;
-    cursor: pointer;
-    width: 100%;
-    margin-top: 6px;
-    transition: background 0.15s;
-  }
-  .btn-primary:hover { background: rgba(0,212,255,0.2); }
-  .btn-danger {
-    background: rgba(255,51,102,0.1);
-    border: 1px solid var(--red);
-    color: var(--red);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 7px 14px;
-    border-radius: 4px;
-    cursor: pointer;
-    width: 100%;
-    margin-top: 6px;
-  }
-  .btn-secondary {
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    color: var(--text2);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 5px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover { border-color: var(--text2); }
-
-  /* ── Right most panel tabs ── */
-  .far-right-tabs {
-    display: flex;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg2);
-  }
-  .far-tab {
-    padding: 8px 14px;
-    font-family: var(--sans);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text3);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    flex: 1;
-    text-align: center;
-  }
-  .far-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
-
-  .far-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
-  .far-panel.active { display: flex; }
-
-  /* ── Agent info ── */
-  .agent-info-item { }
-  .agent-info-label { font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 2px; }
-  .agent-info-value { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--text); }
-
-  @media (max-width: 1400px) {
-    .main-layout { grid-template-columns: 1fr 320px 240px; }
-  }
-  @media (max-width: 1100px) {
-    .main-layout { grid-template-columns: 1fr 280px; }
-    .far-right { display: none; }
-    .stats-bar { grid-template-columns: repeat(4, 1fr); }
-  }
-
-  /* ─── Professional polish ─────────────────────────────── */
-
-  /* Glow effect on active elements */
-  .btn-long:not(:disabled) { box-shadow: 0 0 12px rgba(0,255,136,0.25); }
-  .btn-short:not(:disabled) { box-shadow: 0 0 12px rgba(255,51,102,0.2); }
-
-  /* Stats bar gradient border bottom */
-  .stats-bar {
-    background: linear-gradient(180deg, #0f1320 0%, #0b0e1a 100%);
-    box-shadow: inset 0 -1px 0 #1a2035;
-  }
-
-  /* Stat item hover */
-  .stat-item { transition: background 0.15s; cursor: default; }
-  .stat-item:hover { background: rgba(0,212,255,0.03); }
-
-  /* Header gradient */
-  header {
-    background: linear-gradient(180deg, #0e1222 0%, #0b0e1a 100%);
-    box-shadow: 0 1px 0 #1a2035, 0 2px 8px rgba(0,0,0,0.4);
-  }
-
-  /* Coin cell improved */
-  .coin-cell {
-    transition: all 0.12s;
-    position: relative;
-    overflow: hidden;
-  }
-  .coin-cell::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: transparent;
-    transition: background 0.15s;
-  }
-  .coin-cell:hover::before { background: var(--border2); }
-  .coin-cell.selected::before { background: var(--cyan); }
-
-  /* Log area styling */
-  .log-area {
-    background: #000;
-    font-family: var(--mono);
-    line-height: 1.7;
-  }
-  .log-line { 
-    border-bottom: 1px solid rgba(26,32,53,0.4);
-    padding: 2px 0;
-  }
-  .log-line.ok { border-left: 2px solid rgba(0,255,136,0.4); padding-left: 6px; }
-  .log-line.error { border-left: 2px solid rgba(255,51,102,0.5); padding-left: 6px; }
-  .log-line.warn { border-left: 2px solid rgba(255,204,0,0.4); padding-left: 6px; }
-
-  /* Trade form polish */
-  .trade-form { background: linear-gradient(180deg, #0d1020 0%, #0b0e1a 100%); }
-  
-  /* Input focus glow */
-  input:focus, select:focus { 
-    box-shadow: 0 0 0 2px rgba(0,212,255,0.15);
-  }
-
-  /* Right panel scrollbar */
-  .right-panel::-webkit-scrollbar { width: 3px; }
-  .right-panel::-webkit-scrollbar-thumb { background: #1a2035; }
-
-  /* Strategy bars */
-  .strat-bar-fill { 
-    background: linear-gradient(90deg, var(--cyan), rgba(0,212,255,0.4));
-  }
-
-  /* Market item polish */
-  .market-item { border-radius: 4px; }
-
-  /* Far right panel */
-  .far-right {
-    background: #050709;
-    border-left: 1px solid var(--border);
-  }
-
-  /* Tabs underline animation */
-  .tab {
-    position: relative;
-    transition: color 0.15s;
-  }
-  .tab::after {
-    content: '';
-    position: absolute;
-    bottom: -1px; left: 50%; right: 50%;
-    height: 2px;
-    background: var(--cyan);
-    transition: left 0.2s, right 0.2s;
-  }
-  .tab.active::after { left: 0; right: 0; }
-  .tab.active { border-bottom-color: transparent; }
-
-  /* Status pill pulse */
-  @keyframes pulse-green {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,136,0.4); }
-    50% { box-shadow: 0 0 0 4px rgba(0,255,136,0); }
-  }
-  .status-dot { animation: pulse-green 2s infinite; }
-  .status-dot.offline { animation: none; }
-
-  /* Agent section */
-  .agent-section { background: var(--bg); }
-  .agent-cell { transition: border-color 0.15s; }
-  .agent-cell:hover { border-color: var(--border2); }
-
-  /* Ctrl cards */
-  .ctrl-card { 
-    border-color: rgba(26,32,53,0.8);
-    background: linear-gradient(180deg, rgba(15,20,34,0.6) 0%, rgba(11,14,26,0.8) 100%);
-  }
-
-  /* Position cards in new style */
-  .pos-card { 
-    border-radius: 6px;
-    transition: border-color 0.15s;
-  }
-  .pos-card:hover { border-color: var(--border2); }
+/* ══════════════════════════════════════════════════
+   DESIGN SYSTEM — TRADEMAXPRO v10
+   Aesthetic: Bloomberg Terminal × Cyberpunk Precision
+   Dark obsidian base, electric teal accents, 
+   surgical typography, glowing data surfaces
+══════════════════════════════════════════════════ */
+:root {
+  --bg0:     #020408;
+  --bg1:     #060a12;
+  --bg2:     #090e1a;
+  --bg3:     #0d1422;
+  --bg4:     #111828;
+  --bg5:     #161e2e;
+
+  --border:  rgba(0,200,255,0.08);
+  --border2: rgba(0,200,255,0.16);
+  --border3: rgba(0,200,255,0.28);
+
+  --text:    #c8dff2;
+  --text2:   #5a7a9a;
+  --text3:   #2a4060;
+
+  --teal:    #00c8ff;
+  --teal2:   #00a0d0;
+  --teal-glow: rgba(0,200,255,0.12);
+  --teal-glow2: rgba(0,200,255,0.06);
+
+  --green:   #00e87a;
+  --green2:  #00b85f;
+  --green-glow: rgba(0,232,122,0.1);
+
+  --red:     #ff2d5b;
+  --red2:    #cc1f45;
+  --red-glow: rgba(255,45,91,0.1);
+
+  --yellow:  #ffc820;
+  --orange:  #ff6820;
+  --purple:  #9d50ff;
+
+  --mono:    'Space Mono', monospace;
+  --sans:    'DM Sans', sans-serif;
+  --display: 'Orbitron', sans-serif;
+
+  --radius:  4px;
+  --radius2: 8px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { height: 100%; }
+
+body {
+  background: var(--bg0);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Scrollbars ── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border3); }
+
+/* ══════════════════════════════════════════════════
+   TICKER STRIP
+══════════════════════════════════════════════════ */
+.ticker-strip {
+  height: 28px;
+  background: var(--bg0);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 0;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.ticker-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border2);
+  margin: 0 16px;
+}
+
+.ticker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.ticker-sym {
+  color: var(--text3);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.ticker-price {
+  color: var(--text);
+  font-weight: 400;
+}
+
+.ticker-chg {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 700;
+}
+.ticker-chg.pos { color: var(--green); background: var(--green-glow); }
+.ticker-chg.neg { color: var(--red); background: var(--red-glow); }
+.ticker-chg.neu { color: var(--text3); }
+
+/* Live dot */
+.ticker-live {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  color: var(--text3);
+  letter-spacing: 0.1em;
+}
+.live-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: livepulse 2s infinite;
+}
+.live-dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); animation: none; }
+@keyframes livepulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ══════════════════════════════════════════════════
+   HEADER
+══════════════════════════════════════════════════ */
+header {
+  height: 56px;
+  background: linear-gradient(180deg, var(--bg2) 0%, var(--bg1) 100%);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 0;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* Subtle scan line on header */
+header::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--teal), transparent);
+  opacity: 0.4;
+}
+
+.logo-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-right: 32px;
+}
+
+.logo-primary {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--teal);
+  line-height: 1;
+  text-shadow: 0 0 20px rgba(0,200,255,0.4);
+}
+
+.logo-sub {
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  color: var(--text3);
+  font-family: var(--mono);
+  text-transform: uppercase;
+}
+
+/* Vertical separator */
+.vsep {
+  width: 1px;
+  height: 32px;
+  background: var(--border2);
+  margin: 0 24px;
+  flex-shrink: 0;
+}
+
+/* Header KPI row */
+.header-kpis {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+}
+
+.hkpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 20px;
+  border-right: 1px solid var(--border);
+}
+.hkpi:first-child { padding-left: 0; }
+
+.hkpi-label {
+  font-size: 8px;
+  letter-spacing: 0.15em;
+  color: var(--text3);
+  text-transform: uppercase;
+  font-family: var(--sans);
+}
+
+.hkpi-val {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--text);
+}
+.hkpi-val.teal  { color: var(--teal); }
+.hkpi-val.green { color: var(--green); }
+.hkpi-val.red   { color: var(--red); }
+.hkpi-val.yellow{ color: var(--yellow); }
+.hkpi-val.purple{ color: var(--purple); }
+
+/* Header right controls */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.conn-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--text2);
+  background: var(--bg3);
+}
+
+.btn-hdr {
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-hdr-start {
+  background: var(--teal-glow);
+  border: 1px solid var(--teal2);
+  color: var(--teal);
+}
+.btn-hdr-start:hover { background: rgba(0,200,255,0.2); box-shadow: 0 0 12px rgba(0,200,255,0.2); }
+
+.btn-hdr-stop {
+  background: rgba(255,45,91,0.08);
+  border: 1px solid rgba(255,45,91,0.3);
+  color: var(--red);
+}
+.btn-hdr-stop:hover { background: rgba(255,45,91,0.16); }
+
+/* ══════════════════════════════════════════════════
+   STATS BAR
+══════════════════════════════════════════════════ */
+.stats-bar {
+  height: 52px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  flex-shrink: 0;
+}
+
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 16px;
+  border-right: 1px solid var(--border);
+  gap: 2px;
+  transition: background 0.15s;
+}
+.stat-cell:hover { background: var(--teal-glow2); }
+.stat-cell:last-child { border-right: none; }
+
+.stat-cell-label {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: var(--text3);
+  text-transform: uppercase;
+  font-family: var(--sans);
+}
+
+.stat-cell-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+.stat-cell-val.green  { color: var(--green); }
+.stat-cell-val.red    { color: var(--red); }
+.stat-cell-val.yellow { color: var(--yellow); }
+.stat-cell-val.purple { color: var(--purple); }
+.stat-cell-val.teal   { color: var(--teal); }
+
+.stat-cell-sub {
+  font-size: 9px;
+  color: var(--text3);
+  margin-top: 1px;
+}
+
+/* ══════════════════════════════════════════════════
+   MAIN LAYOUT
+══════════════════════════════════════════════════ */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px 260px;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ══════════════════════════════════════════════════
+   LEFT PANEL — MARKET + TABS
+══════════════════════════════════════════════════ */
+.left-panel {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  flex-shrink: 0;
+}
+
+.tab {
+  position: relative;
+  padding: 12px 18px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--text3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s;
+  font-family: var(--sans);
+  font-weight: 500;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border: none;
+  background: none;
+}
+.tab:hover { color: var(--text2); }
+.tab.active {
+  color: var(--teal);
+  border-bottom: 2px solid var(--teal);
+}
+
+.tab-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+/* ── Market search ── */
+.market-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.market-search {
+  flex: 1;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 6px 10px 6px 28px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.15s;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235a7a9a' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 8px center;
+}
+.market-search:focus { border-color: var(--teal2); box-shadow: 0 0 0 2px var(--teal-glow); }
+.market-search::placeholder { color: var(--text3); }
+
+.sort-btn-group { display: flex; gap: 4px; }
+.sort-btn {
+  height: 28px;
+  padding: 0 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.12s;
+  font-weight: 700;
+}
+.sort-btn:hover, .sort-btn.active { border-color: var(--teal2); color: var(--teal); background: var(--teal-glow2); }
+
+/* ── Coin grid ── */
+.coin-grid-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+.coin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+  gap: 1px;
+  padding: 1px;
+  background: var(--border);
+}
+
+.coin-cell {
+  background: var(--bg2);
+  padding: 7px 8px;
+  cursor: pointer;
+  transition: all 0.1s;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+  min-height: 50px;
+}
+
+.coin-cell:hover { background: var(--bg3); z-index: 1; }
+
+.coin-cell.selected {
+  background: var(--teal-glow);
+  outline: 1px solid var(--teal2);
+  z-index: 2;
+}
+.coin-cell.selected::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--teal);
+}
+
+.coin-sym {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coin-price {
+  font-size: 9px;
+  color: var(--text2);
+}
+
+.coin-chg {
+  font-size: 9px;
+  font-weight: 700;
+}
+.coin-chg.pos { color: var(--green); }
+.coin-chg.neg { color: var(--red); }
+
+/* ── Panel content areas ── */
+.panel-content { display: none; flex-direction: column; flex: 1; overflow: hidden; min-height: 0; }
+.panel-content.active { display: flex; }
+
+/* ── Chart + Strategy area (PIYASA tab bottom) ── */
+.market-bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--border);
+  height: 200px;
+  flex-shrink: 0;
+}
+
+.chart-pane {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane-header {
+  height: 30px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.pane-title {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--text3);
+  text-transform: uppercase;
+  font-family: var(--sans);
+  font-weight: 600;
+}
+.pane-badge {
+  font-size: 8px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.pane-badge.live { background: var(--green-glow); color: var(--green); border: 1px solid rgba(0,232,122,0.3); }
+
+.chart-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text3);
+  font-size: 10px;
+}
+.chart-icon { font-size: 24px; opacity: 0.3; }
+
+/* Chart interval buttons */
+.chart-intervals {
+  display: flex;
+  gap: 1px;
+  margin-left: auto;
+}
+.interval-btn {
+  height: 18px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 9px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: all 0.1s;
+}
+.interval-btn:hover, .interval-btn.active { color: var(--teal); background: var(--teal-glow2); }
+
+/* ── Strategy learning panel ── */
+.strategy-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.strat-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.strat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg3);
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+.strat-row:hover { border-color: var(--border2); }
+
+.strat-tag {
+  font-size: 8px;
+  padding: 2px 5px;
+  border-radius: 2px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.strat-tag.best { background: var(--green-glow); color: var(--green); border: 1px solid rgba(0,232,122,0.2); }
+.strat-tag.good { background: var(--teal-glow2); color: var(--teal2); border: 1px solid var(--border2); }
+
+.strat-name {
+  font-size: 10px;
+  color: var(--text);
+  flex: 1;
+  font-family: var(--sans);
+}
+
+.strat-bar-bg {
+  width: 80px;
+  height: 3px;
+  background: var(--bg5);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.strat-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--teal), rgba(0,200,255,0.3));
+  transition: width 0.8s ease;
+}
+
+.strat-wr {
+  font-size: 9px;
+  color: var(--text2);
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.strat-pf {
+  font-size: 9px;
+  color: var(--green);
+  width: 28px;
+  text-align: right;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════════════
+   POSITIONS TAB
+══════════════════════════════════════════════════ */
+.positions-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.pos-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius2);
+  padding: 12px 14px;
+  transition: border-color 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+.pos-card:hover { border-color: var(--border2); }
+.pos-card.long-card { border-left: 3px solid var(--green); }
+.pos-card.short-card { border-left: 3px solid var(--red); }
+
+.pos-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.pos-sym {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.pos-side-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 3px 10px;
+  border-radius: 2px;
+}
+.pos-side-badge.long { background: var(--green-glow); color: var(--green); border: 1px solid rgba(0,232,122,0.25); }
+.pos-side-badge.short { background: var(--red-glow); color: var(--red); border: 1px solid rgba(255,45,91,0.25); }
+
+.pos-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pos-metric { display: flex; flex-direction: column; gap: 1px; }
+.pos-metric-label {
+  font-size: 8px;
+  color: var(--text3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--sans);
+}
+.pos-metric-val {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+}
+.pos-metric-val.green { color: var(--green); }
+.pos-metric-val.red { color: var(--red); }
+
+.pos-pnl-bar {
+  height: 2px;
+  background: var(--bg5);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.pos-pnl-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.5s;
+}
+.pos-pnl-fill.pos { background: var(--green); }
+.pos-pnl-fill.neg { background: var(--red); }
+
+.btn-close-pos {
+  width: 100%;
+  height: 28px;
+  background: rgba(255,45,91,0.08);
+  border: 1px solid rgba(255,45,91,0.25);
+  border-radius: var(--radius);
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-close-pos:hover { background: rgba(255,45,91,0.18); border-color: var(--red); }
+
+/* ══════════════════════════════════════════════════
+   SIGNALS TAB
+══════════════════════════════════════════════════ */
+.signals-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.signal-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius2);
+  padding: 10px 12px;
+}
+
+.signal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.signal-symbol { font-size: 12px; font-weight: 700; color: var(--text); }
+
+.signal-side {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 2px 8px;
+  border-radius: 2px;
+}
+.signal-side.buy  { background: var(--green-glow); color: var(--green); }
+.signal-side.sell { background: var(--red-glow); color: var(--red); }
+.signal-side.none { background: var(--bg4); color: var(--text3); }
+
+.signal-score-bar {
+  height: 2px;
+  background: var(--bg5);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.signal-score-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.5s;
+}
+.signal-score-fill.positive { background: var(--green); }
+.signal-score-fill.negative { background: var(--red); }
+
+.signal-details { display: flex; flex-direction: column; gap: 2px; }
+.signal-detail-row {
+  font-size: 9px;
+  color: var(--text2);
+  padding: 1px 0;
+  border-top: 1px solid var(--border);
+}
+
+/* ══════════════════════════════════════════════════
+   KONTROL TAB
+══════════════════════════════════════════════════ */
+.ctrl-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.ctrl-section {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius2);
+  overflow: hidden;
+}
+
+.ctrl-section-header {
+  height: 34px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--text2);
+  text-transform: uppercase;
+  font-family: var(--sans);
+  font-weight: 600;
+}
+.ctrl-section-icon { font-size: 12px; }
+
+.ctrl-section-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ctrl-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ctrl-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  font-size: 8px;
+  color: var(--text3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-family: var(--sans);
+}
+
+input, select {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+}
+input:focus, select:focus {
+  border-color: var(--teal2);
+  box-shadow: 0 0 0 2px var(--teal-glow);
+}
+select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a7a9a'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px; }
+
+/* Preview row */
+.preview-row {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 10px;
+  color: var(--text2);
+  line-height: 1.6;
+}
+
+/* Long/Short buttons */
+.trade-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.btn-long {
+  height: 40px;
+  background: var(--green-glow);
+  border: 1px solid rgba(0,232,122,0.4);
+  border-radius: var(--radius);
+  color: var(--green);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn-long:hover { background: rgba(0,232,122,0.2); box-shadow: 0 0 16px rgba(0,232,122,0.2); }
+.btn-long:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.btn-short {
+  height: 40px;
+  background: var(--red-glow);
+  border: 1px solid rgba(255,45,91,0.35);
+  border-radius: var(--radius);
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn-short:hover { background: rgba(255,45,91,0.2); box-shadow: 0 0 16px rgba(255,45,91,0.15); }
+.btn-short:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.btn-close-all {
+  height: 36px;
+  background: rgba(255,104,32,0.08);
+  border: 1px solid rgba(255,104,32,0.3);
+  border-radius: var(--radius);
+  color: var(--orange);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+}
+.btn-close-all:hover { background: rgba(255,104,32,0.16); }
+
+.btn-apply {
+  height: 36px;
+  background: var(--teal-glow);
+  border: 1px solid var(--teal2);
+  border-radius: var(--radius);
+  color: var(--teal);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+}
+.btn-apply:hover { background: rgba(0,200,255,0.2); box-shadow: 0 0 12px var(--teal-glow); }
+
+/* ══════════════════════════════════════════════════
+   MIDDLE PANEL — TRADE FORM + AGENT
+══════════════════════════════════════════════════ */
+.middle-panel {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--bg1);
+}
+
+/* Trade form header */
+.trade-header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+
+.trade-symbol-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trade-symbol-name {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.trade-price {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--teal);
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 16px rgba(0,200,255,0.3);
+}
+
+.trade-symbol-link {
+  font-size: 9px;
+  color: var(--teal2);
+  cursor: pointer;
+  text-decoration: none;
+  letter-spacing: 0.05em;
+}
+.trade-symbol-link:hover { color: var(--teal); }
+
+/* Trade form body */
+.trade-form-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* Leverage display */
+.lev-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+}
+.lev-display-val {
+  font-family: var(--display);
+  font-size: 16px;
+  color: var(--yellow);
+  font-weight: 600;
+}
+.lev-display-label { font-size: 9px; color: var(--text3); }
+
+/* Max TP preview */
+.max-tp-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  font-size: 9px;
+}
+.max-tp-label { color: var(--text3); }
+.max-tp-val { color: var(--green); font-weight: 700; }
+
+/* PnL preview mini */
+.pnl-preview {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 10px;
+  color: var(--text2);
+  line-height: 1.7;
+}
+.pnl-preview span { color: var(--text); font-weight: 700; }
+
+/* ── Trade action buttons in middle ── */
+.trade-actions {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.trade-btn-long {
+  height: 44px;
+  background: linear-gradient(135deg, rgba(0,232,122,0.12), rgba(0,232,122,0.06));
+  border: 1px solid rgba(0,232,122,0.4);
+  border-radius: var(--radius);
+  color: var(--green);
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.trade-btn-long:hover {
+  background: linear-gradient(135deg, rgba(0,232,122,0.22), rgba(0,232,122,0.12));
+  box-shadow: 0 0 20px rgba(0,232,122,0.2), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.trade-btn-long:disabled { opacity: 0.25; cursor: not-allowed; }
+
+.trade-btn-short {
+  height: 44px;
+  background: linear-gradient(135deg, rgba(255,45,91,0.12), rgba(255,45,91,0.06));
+  border: 1px solid rgba(255,45,91,0.35);
+  border-radius: var(--radius);
+  color: var(--red);
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.trade-btn-short:hover {
+  background: linear-gradient(135deg, rgba(255,45,91,0.22), rgba(255,45,91,0.12));
+  box-shadow: 0 0 20px rgba(255,45,91,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.trade-btn-short:disabled { opacity: 0.25; cursor: not-allowed; }
+
+/* ── Agent section ── */
+.agent-section {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.agent-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agent-title {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  color: var(--text3);
+  text-transform: uppercase;
+  font-family: var(--sans);
+  font-weight: 600;
+}
+
+/* Toggle switch */
+.toggle-wrap { display: flex; align-items: center; gap: 8px; }
+.toggle-label { font-size: 9px; color: var(--text3); }
+
+.toggle-switch {
+  width: 38px;
+  height: 20px;
+  background: var(--bg5);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-appearance: none;
+  outline: none;
+}
+.toggle-switch:checked {
+  background: rgba(0,232,122,0.2);
+  border-color: rgba(0,232,122,0.5);
+}
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: var(--text3);
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+.toggle-switch:checked::after {
+  left: 20px;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(0,232,122,0.5);
+}
+
+/* Agent stat cells */
+.agent-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.agent-cell {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: border-color 0.15s;
+}
+.agent-cell:hover { border-color: var(--border2); }
+
+.agent-cell-label {
+  font-size: 8px;
+  color: var(--text3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-family: var(--sans);
+}
+.agent-cell-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  font-family: var(--mono);
+}
+.agent-cell-val.active { color: var(--green); }
+.agent-cell-val.passive { color: var(--text3); }
+.agent-cell-val.yellow { color: var(--yellow); }
+
+/* ── Futures market list ── */
+.market-list-section {
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  max-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.market-list-header {
+  height: 32px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.market-list-count {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+.market-list-search {
+  flex: 1;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  outline: none;
+}
+.market-list-search:focus { border-color: var(--teal2); }
+.market-list-search::placeholder { color: var(--text3); }
+
+.market-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.market-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+  gap: 8px;
+}
+.market-item:hover { background: var(--bg3); }
+.market-item.selected { background: var(--teal-glow2); }
+
+.market-item-sym {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+}
+.market-item-quote { font-size: 9px; color: var(--text3); }
+.market-item-price { font-size: 10px; color: var(--text2); }
+
+/* ══════════════════════════════════════════════════
+   RIGHT PANEL — LOGS + SIGNALS
+══════════════════════════════════════════════════ */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg0);
+}
+
+/* Far tab bar */
+.far-tab-bar {
+  display: flex;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.far-tab {
+  flex: 1;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--text3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  font-family: var(--sans);
+  font-weight: 600;
+  text-transform: uppercase;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: 1px solid var(--border);
+}
+.far-tab:last-child { border-right: none; }
+.far-tab:hover { color: var(--text2); background: var(--teal-glow2); }
+.far-tab.active { color: var(--teal); border-bottom-color: var(--teal); background: var(--teal-glow2); }
+
+/* Log filter row */
+.log-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.log-filter-btn {
+  height: 20px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.log-filter-btn:hover, .log-filter-btn.active {
+  border-color: var(--teal2);
+  color: var(--teal);
+  background: var(--teal-glow2);
+}
+
+.log-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.log-icon-btn {
+  width: 22px; height: 20px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text3);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.log-icon-btn:hover { border-color: var(--border2); color: var(--text2); }
+
+.log-auto-label {
+  font-size: 8px;
+  color: var(--text3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.log-auto-label input { width: 12px; height: 12px; accent-color: var(--teal); }
+
+/* Log area */
+.log-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  background: #000;
+  min-height: 0;
+}
+
+.log-line {
+  display: flex;
+  gap: 6px;
+  padding: 2px 10px;
+  border-bottom: 1px solid rgba(0,200,255,0.03);
+  line-height: 1.5;
+  transition: background 0.1s;
+}
+.log-line:hover { background: rgba(255,255,255,0.02); }
+
+.log-time {
+  color: var(--text3);
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+  font-size: 9px;
+  padding-top: 1px;
+}
+
+.log-line .log-msg { color: var(--text2); flex: 1; word-break: break-all; }
+.log-line.ok { border-left: 2px solid rgba(0,232,122,0.5); }
+.log-line.ok .log-msg { color: rgba(0,232,122,0.9); }
+.log-line.error { border-left: 2px solid rgba(255,45,91,0.6); }
+.log-line.error .log-msg { color: rgba(255,45,91,0.9); }
+.log-line.warn { border-left: 2px solid rgba(255,200,32,0.5); }
+.log-line.warn .log-msg { color: rgba(255,200,32,0.9); }
+.log-line.info { border-left: 2px solid transparent; }
+
+/* Far content panels */
+.far-content { display: none; flex-direction: column; flex: 1; overflow: hidden; min-height: 0; }
+.far-content.active { display: flex; }
+
+/* Signals side panel */
+.sig-panel {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.sig-mini-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sig-mini-cell {
+  background: var(--bg1);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sig-mini-label { font-size: 8px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.1em; font-family: var(--sans); }
+.sig-mini-val { font-size: 12px; font-weight: 700; color: var(--text); }
+
+/* ══════════════════════════════════════════════════
+   MODAL
+══════════════════════════════════════════════════ */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,4,12,0.85);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--bg2);
+  border: 1px solid var(--border3);
+  border-radius: var(--radius2);
+  padding: 20px;
+  width: 360px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8), 0 0 0 1px var(--border2);
+}
+
+.modal-title {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--teal);
+  letter-spacing: 0.08em;
+}
+
+.modal-close {
+  position: absolute;
+  top: 16px; right: 16px;
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  color: var(--text3);
+  width: 24px; height: 24px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-close:hover { color: var(--text); border-color: var(--border3); }
+
+.modal { position: relative; }
+
+/* ══════════════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════════════ */
+#toast-container {
+  position: fixed;
+  top: 80px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-family: var(--mono);
+  min-width: 240px;
+  max-width: 320px;
+  animation: slideIn 0.3s ease;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.toast.error { background: rgba(255,45,91,0.15); border: 1px solid rgba(255,45,91,0.4); color: var(--red); }
+.toast.success { background: rgba(0,232,122,0.1); border: 1px solid rgba(0,232,122,0.35); color: var(--green); }
+.toast.info { background: rgba(0,200,255,0.1); border: 1px solid var(--border2); color: var(--teal); }
+.toast.warn { background: rgba(255,200,32,0.1); border: 1px solid rgba(255,200,32,0.35); color: var(--yellow); }
+
+.toast-icon { font-size: 14px; flex-shrink: 0; }
+.toast-msg { flex: 1; }
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes fadeOut {
+  to { opacity: 0; transform: translateX(20px); }
+}
+
+/* ══════════════════════════════════════════════════
+   EMPTY STATE
+══════════════════════════════════════════════════ */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 10px;
+  color: var(--text3);
+  font-size: 11px;
+  min-height: 80px;
+  padding: 20px;
+  text-align: center;
+}
+.empty-state-icon { font-size: 28px; opacity: 0.3; }
+
+/* ══════════════════════════════════════════════════
+   RESPONSIVE
+══════════════════════════════════════════════════ */
+@media (max-width: 1200px) {
+  .main-layout { grid-template-columns: 1fr 300px; }
+  .right-panel { display: none; }
+  .stats-bar { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 900px) {
+  .main-layout { grid-template-columns: 1fr; }
+  .middle-panel { display: none; }
+}
 </style>
 </head>
 <body>
 
-<!-- ── Ticker Bar ── -->
-<div class="ticker-bar" id="ticker-bar">
-  <span class="ticker-item" id="t-btc"><span class="ticker-sym">BTC</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
-  <span class="ticker-item" id="t-eth"><span class="ticker-sym">ETH</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
-  <span class="ticker-item" id="t-sol"><span class="ticker-sym">SOL</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
-  <span class="ticker-item" id="t-bnb"><span class="ticker-sym">BNB</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
-  <span class="ticker-item" id="t-xrp"><span class="ticker-sym">XRP</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
+<!-- ══════════════════════════════════════════════════
+     TICKER STRIP
+══════════════════════════════════════════════════ -->
+<div class="ticker-strip">
+  <div class="ticker-item" id="t-btc">
+    <span class="ticker-sym">BTC</span>
+    <span class="ticker-price">–</span>
+    <span class="ticker-chg neu">–</span>
+  </div>
+  <div class="ticker-divider"></div>
+  <div class="ticker-item" id="t-eth">
+    <span class="ticker-sym">ETH</span>
+    <span class="ticker-price">–</span>
+    <span class="ticker-chg neu">–</span>
+  </div>
+  <div class="ticker-divider"></div>
+  <div class="ticker-item" id="t-sol">
+    <span class="ticker-sym">SOL</span>
+    <span class="ticker-price">–</span>
+    <span class="ticker-chg neu">–</span>
+  </div>
+  <div class="ticker-divider"></div>
+  <div class="ticker-item" id="t-bnb">
+    <span class="ticker-sym">BNB</span>
+    <span class="ticker-price">–</span>
+    <span class="ticker-chg neu">–</span>
+  </div>
+  <div class="ticker-divider"></div>
+  <div class="ticker-item" id="t-xrp">
+    <span class="ticker-sym">XRP</span>
+    <span class="ticker-price">–</span>
+    <span class="ticker-chg neu">–</span>
+  </div>
+  <div class="ticker-live">
+    <div class="live-dot offline" id="conn-dot"></div>
+    <span id="conn-label">BAĞLANIYOR</span>
+  </div>
 </div>
 
-<!-- ── Header ── -->
+<!-- ══════════════════════════════════════════════════
+     HEADER
+══════════════════════════════════════════════════ -->
 <header>
-  <div>
-    <div class="logo">AI TRADING BOT<small>BINANCE FUTURES · REAL DATA · SIMULATED</small></div>
+  <div class="logo-block">
+    <div class="logo-primary">TRADEMAXPRO</div>
+    <div class="logo-sub">BINANCE FUTURES · AI ENGINE · TESTNET</div>
   </div>
 
-  <div class="header-meta">
-    <div class="hm-stat">
-      <div class="hm-label">Bakiye</div>
-      <div class="hm-value cyan" id="header-balance">$0.00</div>
+  <div class="vsep"></div>
+
+  <div class="header-kpis">
+    <div class="hkpi">
+      <div class="hkpi-label">Bakiye</div>
+      <div class="hkpi-val teal" id="header-balance">$0.00</div>
     </div>
-    <div class="hm-stat">
-      <div class="hm-label">PNL</div>
-      <div class="hm-value green" id="header-pnl">+$0.00</div>
+    <div class="hkpi">
+      <div class="hkpi-label">PNL</div>
+      <div class="hkpi-val green" id="header-pnl">+$0.00</div>
     </div>
-    <div class="hm-stat">
-      <div class="hm-label">Win Rate</div>
-      <div class="hm-value" id="header-wr" style="color:var(--yellow)">–</div>
+    <div class="hkpi">
+      <div class="hkpi-label">Win Rate</div>
+      <div class="hkpi-val yellow" id="header-wr">–</div>
     </div>
-    <div class="hm-stat">
-      <div class="hm-label">Drawdown</div>
-      <div class="hm-value red" id="header-dd">–</div>
+    <div class="hkpi">
+      <div class="hkpi-label">Drawdown</div>
+      <div class="hkpi-val red" id="header-dd">–</div>
     </div>
-    <div class="hm-stat">
-      <div class="hm-label">P.Factor</div>
-      <div class="hm-value" id="header-pf" style="color:var(--purple)">–</div>
+    <div class="hkpi">
+      <div class="hkpi-label">P.Factor</div>
+      <div class="hkpi-val purple" id="header-pf">–</div>
     </div>
   </div>
 
-  <div class="header-controls">
-    <div class="status-pill">
-      <div class="dot offline" id="conn-dot"></div>
-      <span id="conn-label">Bağlanıyor...</span>
-    </div>
-    <button class="btn-start" id="header-agent-btn" onclick="toggleAgent(true)">▶ BAŞLAT</button>
-    <button class="btn-stop" onclick="ctrlCloseAll()">■ DURDUR</button>
+  <div class="header-right">
+    <button class="btn-hdr btn-hdr-start" id="header-agent-btn" onclick="toggleAgent(true)">▶ BAŞLAT AJAN</button>
+    <button class="btn-hdr btn-hdr-stop" onclick="ctrlCloseAll()">■ DURDUR</button>
   </div>
 </header>
 
-<!-- ── Stats Bar ── -->
+<!-- ══════════════════════════════════════════════════
+     STATS BAR
+══════════════════════════════════════════════════ -->
 <div class="stats-bar">
-  <div class="stat-item">
-    <div class="stat-lbl">Portföy</div>
-    <div class="stat-val cyan" id="balance-val">$0.00</div>
-    <div class="stat-sub" id="balance-start">Başlangıç: –</div>
+  <div class="stat-cell">
+    <div class="stat-cell-label">Portföy</div>
+    <div class="stat-cell-val teal" id="balance-val">$0.00</div>
+    <div class="stat-cell-sub" id="balance-start">Başlangıç: –</div>
   </div>
-  <div class="stat-item">
-    <div class="stat-lbl">Toplam PNL</div>
-    <div class="stat-val green" id="pnl-val">+$0.00</div>
-    <div class="stat-sub" id="pnl-pct">+0.00%</div>
+  <div class="stat-cell">
+    <div class="stat-cell-label">Toplam PNL</div>
+    <div class="stat-cell-val green" id="pnl-val">+$0.00</div>
+    <div class="stat-cell-sub" id="pnl-pct">+0.00%</div>
   </div>
-  <div class="stat-item">
-    <div class="stat-lbl">Win Rate</div>
-    <div class="stat-val yellow" id="winrate-val">–</div>
-    <div class="stat-sub" id="winrate-sub">W: – / L: –</div>
+  <div class="stat-cell">
+    <div class="stat-cell-label">Win Rate</div>
+    <div class="stat-cell-val yellow" id="winrate-val">–</div>
+    <div class="stat-cell-sub" id="winrate-sub">W: – / L: –</div>
   </div>
-  <div class="stat-item">
-    <div class="stat-lbl">Profit Factor</div>
-    <div class="stat-val purple" id="pf-val">–</div>
-    <div class="stat-sub">Kazanç / Kayıp</div>
+  <div class="stat-cell">
+    <div class="stat-cell-label">Profit Factor</div>
+    <div class="stat-cell-val purple" id="pf-val">–</div>
+    <div class="stat-cell-sub">Kazanç / Kayıp</div>
   </div>
-  <div class="stat-item">
-    <div class="stat-lbl">Drawdown</div>
-    <div class="stat-val red" id="dd-val">–</div>
-    <div class="stat-sub">Zirve düşüş</div>
+  <div class="stat-cell">
+    <div class="stat-cell-label">Drawdown</div>
+    <div class="stat-cell-val red" id="dd-val">–</div>
+    <div class="stat-cell-sub">Zirve düşüş</div>
   </div>
-  <div class="stat-item">
-    <div class="stat-lbl">Açık Poz.</div>
-    <div class="stat-val" id="open-pos-val" style="color:var(--purple)">0</div>
-    <div class="stat-sub" id="max-pos-sub">Maks – pozisyon</div>
+  <div class="stat-cell">
+    <div class="stat-cell-label">Açık Poz</div>
+    <div class="stat-cell-val" id="open-pos-val" style="color:var(--purple)">0</div>
+    <div class="stat-cell-sub" id="max-pos-sub">Maks 10 pozisyon</div>
   </div>
-  <div class="stat-item">
-    <div class="stat-lbl">İşlem Sayısı</div>
-    <div class="stat-val cyan" id="daily-trades-val">0</div>
-    <div class="stat-sub">Toplam trade</div>
+  <div class="stat-cell">
+    <div class="stat-cell-label">İşlem Sayısı</div>
+    <div class="stat-cell-val" id="daily-trades-val">0</div>
+    <div class="stat-cell-sub">Toplam trade</div>
   </div>
-  <div class="stat-item">
-    <div class="stat-lbl">Coin Sayısı</div>
-    <div class="stat-val" id="market-count" style="color:var(--text)">–</div>
-    <div class="stat-sub">Futures çiftleri</div>
+  <div class="stat-cell">
+    <div class="stat-cell-label">Coin Sayısı</div>
+    <div class="stat-cell-val teal" id="coin-count-val">–</div>
+    <div class="stat-cell-sub">Futures çiftleri</div>
   </div>
 </div>
 
-<!-- ── Main Layout ── -->
+<!-- ══════════════════════════════════════════════════
+     MAIN LAYOUT
+══════════════════════════════════════════════════ -->
 <div class="main-layout">
 
-  <!-- ══ CENTER PANEL ══ -->
-  <div class="center-panel">
-    <div class="tabs">
-      <div class="tab active" data-tab="overview">Piyasa</div>
-      <div class="tab" data-tab="positions">Pozisyonlar</div>
-      <div class="tab" data-tab="signals">Sinyaller</div>
-      <div class="tab" data-tab="control">⚙ Kontrol</div>
+  <!-- LEFT PANEL -->
+  <div class="left-panel">
+
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button class="tab active" data-tab="market">Piyasa</button>
+      <button class="tab" data-tab="positions">Pozisyonlar</button>
+      <button class="tab" data-tab="signals">Sinyaller</button>
+      <button class="tab" data-tab="control">⚙ Kontrol</button>
     </div>
 
-    <!-- OVERVIEW / PIYASA TAB -->
-    <div class="panel-content active" id="tab-overview">
-      <!-- Piyasa grid -->
-      <div class="piyasa-header">
-        <input type="text" id="market-search-input" placeholder="Coin ara..." oninput="filterMarket(this.value)" />
-        <button class="sort-btn active" onclick="sortMarket('pct')">% DEĞİŞİM</button>
-        <button class="sort-btn" onclick="sortMarket('vol')">HACİM</button>
-        <button class="sort-btn" onclick="sortMarket('name')">İSİM</button>
+    <!-- PIYASA TAB -->
+    <div class="panel-content active" id="tab-market">
+      <!-- Search bar -->
+      <div class="market-search-row">
+        <input type="text" class="market-search" id="market-search" placeholder="Coin ara... (BTC, ETH, SOL)" oninput="filterMarket(this.value)" />
+        <div class="sort-btn-group">
+          <button class="sort-btn active" onclick="sortMarket('chg', this)">% DEĞİŞİM</button>
+          <button class="sort-btn" onclick="sortMarket('vol', this)">HACİM</button>
+          <button class="sort-btn" onclick="sortMarket('name', this)">İSİM</button>
+        </div>
       </div>
 
-      <div class="coin-grid" id="market-list">
-        <div class="loading-text"><span class="spinner"></span> Yükleniyor...</div>
+      <!-- Coin grid -->
+      <div class="coin-grid-scroll">
+        <div class="coin-grid" id="market-list">
+          <div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">⟳</div>Yükleniyor...</div>
+        </div>
       </div>
 
-      <!-- Chart + Strategy area -->
-      <div class="chart-area">
-        <div class="chart-card">
-          <div class="chart-header">
-            <span class="chart-sym" id="chart-sym-label">AXS/USDT</span>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span id="chart-pnl-toggle" style="font-size:10px;color:var(--text3);cursor:pointer">PNL</span>
-              <span style="font-size:10px;color:var(--cyan);cursor:pointer">FİYAT</span>
-            </div>
-            <div class="period-btns">
-              <button class="period-btn active">1m</button>
-              <button class="period-btn">3m</button>
-              <button class="period-btn">5m</button>
-              <button class="period-btn">15m</button>
-              <button class="period-btn">1h</button>
-              <button class="period-btn">4h</button>
+      <!-- Bottom: chart + strategy -->
+      <div class="market-bottom">
+        <div class="chart-pane">
+          <div class="pane-header">
+            <span class="pane-title" id="chart-sym-label">AXS/USDT</span>
+            <span style="font-size:9px;color:var(--text3)">PNL</span>
+            <span class="pane-badge live">CANLI</span>
+            <div class="chart-intervals">
+              <button class="interval-btn active" onclick="setInterval2('1m',this)">1m</button>
+              <button class="interval-btn" onclick="setInterval2('3m',this)">3m</button>
+              <button class="interval-btn" onclick="setInterval2('5m',this)">5m</button>
+              <button class="interval-btn" onclick="setInterval2('15m',this)">15m</button>
+              <button class="interval-btn" onclick="setInterval2('1h',this)">1h</button>
+              <button class="interval-btn" onclick="setInterval2('4h',this)">4h</button>
             </div>
           </div>
           <div class="chart-body">
-            <div id="tv-chart" class="tv-chart"></div>
-            <div id="chart-placeholder" class="chart-placeholder">
-              <div style="font-size:22px">📈</div>
-              <div>Lightweight chart hazırlanıyor...</div>
-              <div style="font-size:10px;color:var(--text3)" id="chart-price-footer">Fiyat: –</div>
-            </div>
+            <div class="chart-icon">📊</div>
+            <div>Grafik verisi yükleniyor...</div>
+            <div style="font-size:9px;color:var(--text3)">Fiyat: <span id="current-price">–</span></div>
           </div>
         </div>
-
-        <div class="strategy-card">
-          <div class="strategy-header">
-            <span class="strategy-title">Strateji Öğrenimi</span>
-            <span class="live-badge">CANLI</span>
-            <span class="best-badge" id="best-strategy-badge">EN İYİ: –</span>
+        <div class="strategy-pane">
+          <div class="pane-header">
+            <span class="pane-title">Strateji Öğrenimi</span>
+            <span class="pane-badge live">CANLI</span>
+            <span style="margin-left:auto;font-size:9px;color:var(--text3)">EN İYİ ▼</span>
           </div>
-          <div class="strategy-list" id="strategy-list">
-            <div class="strategy-row">
-              <span class="strat-name">Mean Reversion <span class="live-badge" style="font-size:8px">EN İYİ</span></span>
-              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-mr" style="width:38%;background:var(--cyan)"></div></div></div>
-              <span class="strat-wr" id="sw-mr">38.1% WR</span>
-              <span class="strat-pf" id="spf-mr">1.66</span>
+          <div class="strat-list">
+            <div class="strat-row">
+              <span class="strat-tag best">EN İYİ</span>
+              <span class="strat-name">Mean Reversion</span>
+              <div class="strat-bar-bg"><div class="strat-bar-fill" style="width:76%"></div></div>
+              <span class="strat-wr">38.1% WR</span>
+              <span class="strat-pf">1.66</span>
             </div>
-            <div class="strategy-row">
+            <div class="strat-row">
+              <span class="strat-tag good">İYİ</span>
               <span class="strat-name">Breakout</span>
-              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-bo" style="width:33%;background:var(--green)"></div></div></div>
-              <span class="strat-wr" id="sw-bo">33.3% WR</span>
-              <span class="strat-pf" id="spf-bo">1.42</span>
+              <div class="strat-bar-bg"><div class="strat-bar-fill" style="width:62%"></div></div>
+              <span class="strat-wr">33.3% WR</span>
+              <span class="strat-pf">1.42</span>
             </div>
-            <div class="strategy-row">
+            <div class="strat-row">
+              <span class="strat-tag good">İYİ</span>
               <span class="strat-name">Trend Following</span>
-              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-tf" style="width:30%;background:var(--yellow)"></div></div></div>
-              <span class="strat-wr" id="sw-tf">30.4% WR</span>
-              <span class="strat-pf" id="spf-tf">1.30</span>
+              <div class="strat-bar-bg"><div class="strat-bar-fill" style="width:58%"></div></div>
+              <span class="strat-wr">30.4% WR</span>
+              <span class="strat-pf">1.30</span>
             </div>
-            <div class="strategy-row">
+            <div class="strat-row">
+              <span class="strat-tag" style="background:rgba(255,104,32,0.1);color:var(--orange);border:1px solid rgba(255,104,32,0.2)">ORTA</span>
               <span class="strat-name">Scalping</span>
-              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-sc" style="width:15%;background:var(--orange)"></div></div></div>
-              <span class="strat-wr" id="sw-sc">15.4% WR</span>
-              <span class="strat-pf" id="spf-sc">0.70</span>
+              <div class="strat-bar-bg"><div class="strat-bar-fill" style="width:28%;background:linear-gradient(90deg,var(--orange),rgba(255,104,32,0.3))"></div></div>
+              <span class="strat-wr">15.4% WR</span>
+              <span class="strat-pf" style="color:var(--orange)">0.70</span>
             </div>
-            <div class="strategy-row">
+            <div class="strat-row">
+              <span class="strat-tag" style="background:rgba(255,45,91,0.08);color:var(--red);border:1px solid rgba(255,45,91,0.2)">DÜŞÜK</span>
               <span class="strat-name">VWAP Bounce</span>
-              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-vw" style="width:11%;background:var(--red)"></div></div></div>
-              <span class="strat-wr" id="sw-vw">11.1% WR</span>
-              <span class="strat-pf" id="spf-vw">0.70</span>
+              <div class="strat-bar-bg"><div class="strat-bar-fill" style="width:22%;background:linear-gradient(90deg,var(--red),rgba(255,45,91,0.3))"></div></div>
+              <span class="strat-wr">11.1% WR</span>
+              <span class="strat-pf" style="color:var(--red)">0.70</span>
             </div>
-          </div>
-        </div>
-
-        <div class="bloomberg-panel">
-          <div class="bb-header">
-            <div>
-              <div class="bb-title">Bloomberg Style Market Monitor</div>
-              <div class="bb-sub">Top movers · canlı fiyat tahmini · likidite görünümü</div>
-            </div>
-            <div class="bb-sub" id="bb-updated-at">Güncelleniyor…</div>
-          </div>
-          <div class="bb-grid" id="bb-grid">
-            <div class="bb-cell bb-head">Sembol</div>
-            <div class="bb-cell bb-head">Fiyat</div>
-            <div class="bb-cell bb-head">24s %</div>
-            <div class="bb-cell bb-head">Likidite</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- POSITIONS TAB -->
+    <!-- POZISYONLAR TAB -->
     <div class="panel-content" id="tab-positions">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <span style="color:var(--text3);font-size:10px;letter-spacing:0.12em;text-transform:uppercase">Açık Pozisyonlar</span>
-        <div style="display:flex;gap:8px;align-items:center">
-          <span id="pos-total-pnl" style="font-size:12px;font-weight:600;color:var(--text3)">PNL: –</span>
-          <button class="btn-secondary" onclick="loadPositions()">↻ Yenile</button>
-        </div>
-      </div>
-      <div id="positions-content">
-        <div class="loading-text"><span class="spinner"></span></div>
+      <div class="positions-pane" id="positions-content">
+        <div class="empty-state"><div class="empty-state-icon">📂</div>Açık pozisyon yok</div>
       </div>
     </div>
 
-    <!-- SIGNALS TAB -->
+    <!-- SİNYALLER TAB -->
     <div class="panel-content" id="tab-signals">
-      <!-- Ajan Durum Kartı -->
-      <div class="ctrl-card" id="agent-activity-card" style="margin-bottom:10px">
-        <div class="ctrl-title">🤖 Ajan Durumu</div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">
-          <div class="agent-cell">
-            <div class="agent-cell-label">Durum</div>
-            <div class="agent-cell-val" id="sig-agent-status" style="color:var(--text3)">–</div>
-          </div>
-          <div class="agent-cell">
-            <div class="agent-cell-label">İşlem</div>
-            <div class="agent-cell-val cyan" id="sig-trade-count">0</div>
-          </div>
-          <div class="agent-cell">
-            <div class="agent-cell-label">Epsilon</div>
-            <div class="agent-cell-val yellow" id="sig-epsilon">–</div>
-          </div>
-          <div class="agent-cell">
-            <div class="agent-cell-label">Tarama</div>
-            <div class="agent-cell-val" id="sig-interval" style="color:var(--text2)">5dk</div>
-          </div>
-        </div>
-
-        <!-- Sembol Skor Kartları -->
-        <div style="font-size:9px;color:var(--text3);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px">Anlık Sinyal Skorları (tıkla → işlem aç)</div>
-        <div id="symbol-score-bar" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">
-          <div class="sym-score-item"><div class="sym-score-name">BTC</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
-          <div class="sym-score-item"><div class="sym-score-name">ETH</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
-          <div class="sym-score-item"><div class="sym-score-name">SOL</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
-          <div class="sym-score-item"><div class="sym-score-name">BNB</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
-          <div class="sym-score-item"><div class="sym-score-name">XRP</div><div class="sym-score-val" style="color:var(--text3)">...</div></div>
-        </div>
-      </div>
-
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="color:var(--text3);font-size:10px;letter-spacing:0.12em;text-transform:uppercase">Sinyal Geçmişi</span>
-        <div style="display:flex;gap:6px">
-          <select id="sig-filter" onchange="renderSignalsTab()" style="background:var(--bg4);border:1px solid var(--border);color:var(--text2);font-family:var(--mono);font-size:10px;padding:3px 6px;border-radius:4px">
-            <option value="all">Tümü</option>
-            <option value="BUY">Sadece LONG</option>
-            <option value="SELL">Sadece SHORT</option>
-            <option value="ok">İşlem Açılanlar</option>
-          </select>
-          <button class="btn-secondary" onclick="refreshStatus()">↻ Yenile</button>
-        </div>
-      </div>
-      <div id="signals-content">
-        <div class="empty-state"><div>📊</div>Sinyal bekleniyor...<div style="font-size:10px;margin-top:8px;color:var(--text3)">Ajan 5 dakikada bir BTC, ETH, SOL, BNB, XRP'yi tarar</div></div>
+      <div class="signals-pane" id="signals-content">
+        <div class="empty-state"><div class="empty-state-icon">📡</div>Sinyal bekleniyor...</div>
       </div>
     </div>
 
-    <!-- CONTROL TAB -->
+    <!-- KONTROL TAB -->
     <div class="panel-content" id="tab-control">
-      <div class="ctrl-card">
-        <div class="ctrl-title">🧪 İşlem Testi</div>
-        <div class="ctrl-row">
-          <div>
-            <div class="ctrl-label">Sembol</div>
-            <input type="text" id="test-symbol" value="BTCUSDT" oninput="ctrlUpdateTestPreview()" />
-          </div>
-          <div>
-            <div class="ctrl-label">Yön</div>
-            <select id="test-side" onchange="ctrlUpdateTestPreview()">
-              <option value="BUY">LONG</option>
-              <option value="SELL">SHORT</option>
-            </select>
-          </div>
-        </div>
-        <div class="ctrl-row">
-          <div>
-            <div class="ctrl-label">Miktar (USDT)</div>
-            <input type="number" id="test-qty" value="100" oninput="ctrlUpdateTestPreview()" />
-          </div>
-          <div>
-            <div class="ctrl-label">Kaldıraç</div>
-            <input type="number" id="test-lev" value="3" min="1" max="20" oninput="ctrlUpdateTestPreview()" />
-          </div>
-        </div>
-        <div class="ctrl-row">
-          <div>
-            <div class="ctrl-label">SL %</div>
-            <input type="number" id="test-sl" value="1.5" step="0.1" oninput="ctrlUpdateTestPreview()" />
-          </div>
-          <div>
-            <div class="ctrl-label">TP %</div>
-            <input type="number" id="test-tp" value="3.0" step="0.1" oninput="ctrlUpdateTestPreview()" />
-          </div>
-        </div>
-        <div class="ctrl-row">
-          <div>
-            <div class="ctrl-label">Emir Tipi</div>
-            <select id="test-order-type" onchange="ctrlUpdateTestPreview()">
-              <option value="MARKET">MARKET</option>
-              <option value="LIMIT">LIMIT</option>
-            </select>
-          </div>
-          <div style="display:flex;align-items:flex-end">
-            <div id="test-preview" style="font-size:10px;color:var(--text3)">–</div>
-          </div>
-        </div>
-        <div id="test-result" style="display:none;margin-top:8px"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
-          <button class="btn-long" id="ctrl-btn-long" onclick="ctrlOpenTrade('BUY')" style="font-size:12px;padding:9px">▲ LONG</button>
-          <button class="btn-short" id="ctrl-btn-short" onclick="ctrlOpenTrade('SELL')" style="font-size:12px;padding:9px">▼ SHORT</button>
-        </div>
-        <button class="btn-danger" onclick="ctrlCloseAll()" style="margin-top:6px">🛑 Tüm Pozisyonları Kapat</button>
-      </div>
+      <div class="ctrl-pane">
 
-      <div class="ctrl-card">
-        <div class="ctrl-title">⚙️ Ajan Ayarları</div>
-        <div class="ctrl-row">
-          <div>
-            <div class="ctrl-label">Günlük Max. Kayıp %</div>
-            <input type="number" id="ctrl-daily-loss" value="3" step="0.5" onchange="ctrlUpdateAgentPreview()" />
+        <!-- İşlem Testi -->
+        <div class="ctrl-section">
+          <div class="ctrl-section-header">
+            <span class="ctrl-section-icon">✏</span> İşlem Testi
           </div>
-          <div>
-            <div class="ctrl-label">Max Drawdown %</div>
-            <input type="number" id="ctrl-drawdown" value="15" step="1" onchange="ctrlUpdateAgentPreview()" />
+          <div class="ctrl-section-body">
+            <div class="ctrl-grid-2">
+              <div class="field-group">
+                <div class="field-label">Sembol</div>
+                <input type="text" id="ctrl-symbol" value="BTCUSDT" oninput="ctrlUpdateTestPreview()" />
+              </div>
+              <div class="field-group">
+                <div class="field-label">Yön</div>
+                <select id="ctrl-direction" onchange="ctrlUpdateTestPreview()">
+                  <option value="LONG">LONG</option>
+                  <option value="SHORT">SHORT</option>
+                </select>
+              </div>
+            </div>
+            <div class="ctrl-grid-2">
+              <div class="field-group">
+                <div class="field-label">Miktar (USDT)</div>
+                <input type="number" id="ctrl-amount" value="100" oninput="ctrlUpdateTestPreview()" />
+              </div>
+              <div class="field-group">
+                <div class="field-label">Kaldıraç</div>
+                <input type="number" id="ctrl-leverage" value="3" oninput="ctrlUpdateTestPreview()" />
+              </div>
+            </div>
+            <div class="ctrl-grid-2">
+              <div class="field-group">
+                <div class="field-label">SL %</div>
+                <input type="number" id="ctrl-sl" value="1.5" step="0.1" oninput="ctrlUpdateTestPreview()" />
+              </div>
+              <div class="field-group">
+                <div class="field-label">TP %</div>
+                <input type="number" id="ctrl-tp" value="3.0" step="0.1" oninput="ctrlUpdateTestPreview()" />
+              </div>
+            </div>
+            <div class="field-group">
+              <div class="field-label">Emir Tipi</div>
+              <select id="ctrl-order-type">
+                <option value="MARKET">MARKET</option>
+                <option value="LIMIT">LIMIT</option>
+              </select>
+            </div>
+            <div class="preview-row" id="test-preview">–</div>
+            <div class="trade-buttons">
+              <button class="btn-long" onclick="ctrlOpenTrade('BUY')">▲ LONG</button>
+              <button class="btn-short" onclick="ctrlOpenTrade('SELL')">▼ SHORT</button>
+            </div>
+            <button class="btn-close-all" onclick="ctrlCloseAll()">🔴 Tüm Pozisyonları Kapat</button>
           </div>
         </div>
-        <div class="ctrl-row">
-          <div>
-            <div class="ctrl-label">Risk per Trade %</div>
-            <input type="number" id="ctrl-risk-per-trade" value="1" step="0.1" onchange="ctrlUpdateAgentPreview()" />
-          </div>
-          <div>
-            <div class="ctrl-label">Max Pozisyon</div>
-            <input type="number" id="ctrl-max-pos" value="5" min="1" max="20" onchange="ctrlUpdateAgentPreview()" />
-          </div>
-        </div>
-        <div class="ctrl-row">
-          <div>
-            <div class="ctrl-label">Tarama Aralığı (dk)</div>
-            <input type="number" id="ctrl-scan-interval" value="15" min="1" max="60" onchange="ctrlUpdateAgentPreview()" />
-          </div>
-          <div>
-            <div class="ctrl-label">Min. Sinyal Skoru</div>
-            <input type="number" id="ctrl-min-score" value="0.15" step="0.05" onchange="ctrlUpdateAgentPreview()" />
-          </div>
-        </div>
-        <div class="ctrl-row">
-          <div>
-            <div class="ctrl-label">Kill-switch (ard. kayıp)</div>
-            <input type="number" id="ctrl-kill-switch" value="5" min="1" onchange="ctrlUpdateAgentPreview()" />
-          </div>
-          <div>
-            <div class="ctrl-label">RL Epsilon</div>
-            <input type="number" id="ctrl-rl-eps" value="0.15" step="0.05" onchange="ctrlUpdateAgentPreview()" />
-          </div>
-        </div>
-        <div id="ctrl-agent-preview" style="font-size:10px;color:var(--text3);margin:8px 0;padding:8px;background:var(--bg3);border-radius:4px">–</div>
-        <button class="btn-primary" id="ctrl-btn-save-agent" onclick="ctrlSaveAgent()">💾 Ayarları Uygula</button>
 
-        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <span style="font-size:11px;color:var(--text2)">Otomatik Ajan</span>
-            <label class="toggle-switch">
-              <input type="checkbox" id="ctrl-agent-toggle" onchange="toggleAgent(this.checked)">
-              <span class="toggle-slider"></span>
-            </label>
+        <!-- Ajan Ayarları -->
+        <div class="ctrl-section">
+          <div class="ctrl-section-header">
+            <span class="ctrl-section-icon">🤖</span> Ajan Ayarları
           </div>
-          <div id="ctrl-agent-status-text" style="font-size:11px;color:var(--text3)">⏹ Ajan durduruldu</div>
+          <div class="ctrl-section-body">
+            <div class="ctrl-grid-2">
+              <div class="field-group">
+                <div class="field-label">Günlük Max Kayıp %</div>
+                <input type="number" id="ctrl-daily-loss" value="3" />
+              </div>
+              <div class="field-group">
+                <div class="field-label">Max Drawdown %</div>
+                <input type="number" id="ctrl-max-dd" value="15" />
+              </div>
+            </div>
+            <div class="ctrl-grid-2">
+              <div class="field-group">
+                <div class="field-label">Risk Per Trade %</div>
+                <input type="number" id="ctrl-risk-pt" value="1" />
+              </div>
+              <div class="field-group">
+                <div class="field-label">Max Pozisyon</div>
+                <input type="number" id="ctrl-max-pos" value="10" />
+              </div>
+            </div>
+            <div class="ctrl-grid-3">
+              <div class="field-group">
+                <div class="field-label">Tarama (dk)</div>
+                <input type="number" id="ctrl-scan" value="15" />
+              </div>
+              <div class="field-group">
+                <div class="field-label">Min. Sinyal Skoru</div>
+                <input type="number" id="ctrl-min-score" value="0.15" step="0.01" />
+              </div>
+              <div class="field-group">
+                <div class="field-label">RL Epsilon</div>
+                <input type="number" id="ctrl-epsilon" value="0.15" step="0.01" />
+              </div>
+            </div>
+            <div class="field-group">
+              <div class="field-label">Kill-Switch (Ard. Kayıp)</div>
+              <input type="number" id="ctrl-kill-switch" value="5" />
+            </div>
+            <div class="preview-row" id="ctrl-agent-preview">–</div>
+            <div id="ctrl-agent-status-text" style="font-size:10px;color:var(--text3)">⏹ Ajan durduruldu</div>
+            <div class="ctrl-grid-2">
+              <div class="toggle-wrap" style="padding:4px 0">
+                <span class="agent-title" style="font-size:9px">Otomatik Ajan</span>
+                <input type="checkbox" class="toggle-switch" id="ctrl-agent-toggle" onchange="ctrlToggleAgent(this.checked)" />
+              </div>
+              <button class="btn-apply" onclick="ctrlApplySettings()">💾 Ayarları Uygula</button>
+            </div>
+          </div>
         </div>
+
       </div>
     </div>
 
-  </div>
+  </div><!-- /left-panel -->
 
-  <!-- ══ RIGHT PANEL (Trade Form + Agent) ══ -->
-  <div class="right-panel">
-    <!-- Trade Form -->
-    <div class="trade-form">
-      <div class="form-title">İşlem Aç</div>
+  <!-- MIDDLE PANEL -->
+  <div class="middle-panel">
 
-      <div class="symbol-display" onclick="openMarketModal()">
+    <!-- Trade header -->
+    <div class="trade-header">
+      <div class="trade-symbol-row">
         <div>
-          <div class="symbol-name" id="selected-symbol">BTCUSDT</div>
-          <div style="font-size:10px;color:var(--text3);margin-top:2px">Sembol seç →</div>
+          <div class="trade-symbol-name" id="selected-symbol">BTCUSDT</div>
+          <a class="trade-symbol-link" onclick="openMarketModal()">Sembol seç →</a>
         </div>
-        <div class="symbol-price" id="current-price">–</div>
+        <div class="trade-price" id="current-price">–</div>
       </div>
+    </div>
 
+    <!-- Trade form -->
+    <div class="trade-form-body">
+      <div class="field-group">
+        <div class="field-label">Miktar (USDT)</div>
+        <input type="number" id="trade-amount" value="100" oninput="updatePnLPreview()" />
+      </div>
       <div class="form-row">
-        <div class="form-group">
-          <div class="form-label">Miktar (USDT)</div>
-          <input type="number" id="qty-input" value="100" min="5" step="10" />
-        </div>
-        <div class="form-group">
-          <div class="form-label">Emir Tipi</div>
-          <select id="order-type">
-            <option value="MARKET">Market</option>
-            <option value="LIMIT">Limit</option>
+        <div class="field-group">
+          <div class="field-label">Emir Tipi</div>
+          <select id="trade-order-type">
+            <option>Market</option>
+            <option>Limit</option>
           </select>
         </div>
+        <div class="field-group">
+          <div class="field-label">Kaldıraç</div>
+          <div class="lev-display">
+            <div class="lev-display-label">MAX <span style="color:var(--text2)" id="max-lev-label">20x</span></div>
+            <div class="lev-display-val" id="lev-display">3x</div>
+          </div>
+          <input type="range" id="trade-leverage" min="1" max="20" value="3"
+            style="width:100%;margin-top:4px;accent-color:var(--teal)"
+            oninput="document.getElementById('lev-display').textContent=this.value+'x'; updatePnLPreview()" />
+        </div>
       </div>
-
       <div class="form-row">
-        <div class="form-group">
-          <div class="form-label">Kaldıraç</div>
-          <input type="number" id="leverage-input" value="3" min="1" max="20" step="1" />
+        <div class="field-group">
+          <div class="field-label">SL %</div>
+          <input type="number" id="trade-sl" value="1.5" step="0.1" oninput="updatePnLPreview()" />
         </div>
-        <div style="display:flex;align-items:flex-end;padding-bottom:1px;">
-          <span style="font-size:10px;color:var(--text3)">Max: <span id="max-lev-label" style="color:var(--yellow)">20x</span></span>
-        </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <div class="form-label">SL %</div>
-          <input type="number" id="sl-input" value="1.5" min="0.1" max="10" step="0.1" />
-        </div>
-        <div class="form-group">
-          <div class="form-label">TP %</div>
-          <input type="number" id="tp-input" value="3.0" min="0.1" max="20" step="0.1" />
+        <div class="field-group">
+          <div class="field-label">TP %</div>
+          <input type="number" id="trade-tp" value="3.0" step="0.1" oninput="updatePnLPreview()" />
         </div>
       </div>
-
-      <div class="pnl-preview-row">
-        <span class="pnl-preview-label">max TP</span>
-        <span id="pnl-preview">+$0.00</span>
+      <div class="max-tp-row">
+        <span class="max-tp-label">max TP</span>
+        <span class="max-tp-val" id="max-tp-preview">+$0.00 max TP</span>
       </div>
-
-      <button class="btn-long" id="btn-long" onclick="handleLong()">▲ LONG İŞLEM AÇ</button>
-      <button class="btn-short" id="btn-short" onclick="handleShort()">▼ SHORT İŞLEM AÇ</button>
+      <div class="pnl-preview" id="pnl-preview">–</div>
     </div>
 
-    <!-- Agent Section -->
+    <!-- Trade action buttons -->
+    <div class="trade-actions">
+      <button class="trade-btn-long" onclick="handleLong()">▲ LONG İŞLEM AÇ</button>
+      <button class="trade-btn-short" onclick="handleShort()">▼ SHORT İŞLEM AÇ</button>
+    </div>
+
+    <!-- Agent section -->
     <div class="agent-section">
-      <div class="agent-toggle">
-        <span class="agent-label">Otomatik Ajan</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="agent-toggle" onchange="toggleAgent(this.checked)">
-          <span class="toggle-slider"></span>
-        </label>
+      <div class="agent-header-row">
+        <span class="agent-title">Otomatik Ajan</span>
+        <div class="toggle-wrap">
+          <input type="checkbox" class="toggle-switch" id="agent-toggle" onchange="ctrlToggleAgent(this.checked)" />
+        </div>
       </div>
+
       <div class="agent-grid">
         <div class="agent-cell">
           <div class="agent-cell-label">Durum</div>
-          <div class="agent-cell-val" id="agent-status-val" style="color:var(--text3)">Pasif</div>
+          <div class="agent-cell-val passive" id="agent-status-val">Pasif</div>
         </div>
         <div class="agent-cell">
           <div class="agent-cell-label">İşlem Sayısı</div>
-          <div class="agent-cell-val cyan" id="agent-trade-count">0</div>
+          <div class="agent-cell-val" id="agent-trade-count">0</div>
         </div>
         <div class="agent-cell">
           <div class="agent-cell-label">Tarama</div>
@@ -1450,100 +2099,106 @@
       </div>
     </div>
 
-    <!-- Futures Market List (compact) -->
-    <div class="market-section">
-      <div class="section-title">
-        Futures Piyasaları
-        <span id="market-count2" style="color:var(--cyan);font-family:var(--sans);font-size:13px;font-weight:700">–</span>
+    <!-- Market list -->
+    <div class="market-list-section">
+      <div class="market-list-header">
+        <span class="pane-title">Futures Piyasaları</span>
+        <span class="market-list-count" id="market-count-label">–</span>
+        <input type="text" class="market-list-search" id="market-list-search"
+          placeholder="Sembol ara... (BTC, ETH...)"
+          oninput="filterMarketList(this.value)" style="flex:1;margin-left:8px" />
       </div>
-      <div class="market-search">
-        <input type="text" placeholder="Sembol ara... (BTC, ETH...)" oninput="filterMarket(this.value)" />
-      </div>
-      <div class="market-list" id="market-list-right">
-        <div class="loading-text"><span class="spinner"></span></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ FAR RIGHT: Logs + Signals ══ -->
-  <div class="far-right">
-    <div class="far-right-tabs">
-      <div class="far-tab active" onclick="switchFarTab('logs', this)">Loglar</div>
-      <div class="far-tab" onclick="switchFarTab('overview-signals', this)">Sinyaller</div>
-    </div>
-
-    <!-- Logs Panel -->
-    <div class="far-panel active" id="far-panel-logs">
-      <div class="log-toolbar">
-        <button class="log-filter-btn active" data-level="all" onclick="setLogFilter('all',this)">Tümü</button>
-        <button class="log-filter-btn" data-level="error" onclick="setLogFilter('error',this)">Hata</button>
-        <button class="log-filter-btn" data-level="warn" onclick="setLogFilter('warn',this)">Uyarı</button>
-        <button class="log-filter-btn" data-level="ok" onclick="setLogFilter('ok',this)">Başarı</button>
-        <button class="log-filter-btn" data-level="agent" onclick="setLogFilter('agent',this)">🤖 Ajan</button>
-        <button class="btn-secondary" onclick="fetchLogs()" style="margin-left:auto;font-size:10px;padding:3px 8px">↻</button>
-        <button class="btn-secondary" onclick="clearLogs()" style="font-size:10px;padding:3px 8px">🗑</button>
-        <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="checkbox" id="log-auto-refresh" checked style="width:11px;height:11px"> Otomatik
-        </label>
-      </div>
-      <div class="log-area" id="log-area">
-        <div class="log-line info"><span class="log-time">--:--:--</span>Sistem başlatılıyor...</div>
+      <div class="market-list-scroll">
+        <div id="market-list-right"></div>
       </div>
     </div>
 
-    <!-- Signals Overview Panel -->
-    <div class="far-panel" id="far-panel-overview-signals">
-      <!-- Overview stats mini -->
-      <div style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg2)">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
-          <div class="agent-cell">
-            <div class="agent-cell-label">Piyasa Rejimi</div>
-            <div class="agent-cell-val" id="regime-val" style="color:var(--green)">–</div>
-          </div>
-          <div class="agent-cell">
-            <div class="agent-cell-label">ATR</div>
-            <div class="agent-cell-val" id="atr-sub" style="font-size:12px">–</div>
-          </div>
-          <div class="agent-cell">
-            <div class="agent-cell-label">Margin Kull.</div>
-            <div class="agent-cell-val" id="margin-val2">–</div>
-          </div>
-          <div class="agent-cell">
-            <div class="agent-cell-label">Günlük İşlem</div>
-            <div class="agent-cell-val cyan" id="daily-trades-val2">0</div>
-          </div>
+  </div><!-- /middle-panel -->
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+
+    <div class="far-tab-bar">
+      <button class="far-tab active" onclick="switchFarTab('logs', this)">Loglar</button>
+      <button class="far-tab" onclick="switchFarTab('signals', this)">Sinyaller</button>
+    </div>
+
+    <!-- LOGS -->
+    <div class="far-content active" id="far-logs">
+      <div class="log-filter-row">
+        <button class="log-filter-btn active" onclick="setLogFilter('all', this)">Tümü</button>
+        <button class="log-filter-btn" onclick="setLogFilter('error', this)">Hata</button>
+        <button class="log-filter-btn" onclick="setLogFilter('warn', this)">Uyarı</button>
+        <button class="log-filter-btn" onclick="setLogFilter('ok', this)">Başarı</button>
+        <button class="log-filter-btn" onclick="setLogFilter('agent', this)">Ajan</button>
+        <div class="log-actions">
+          <button class="log-icon-btn" onclick="fetchLogs()" title="Yenile">↻</button>
+          <button class="log-icon-btn" onclick="clearLogs()" title="Temizle">✕</button>
+          <label class="log-auto-label">
+            <input type="checkbox" id="log-auto-refresh" checked />
+            Otomatik
+          </label>
         </div>
       </div>
+      <div class="log-area" id="log-area"></div>
+    </div>
 
-      <div style="padding:10px 12px;overflow-y:auto;flex:1">
-        <div style="font-size:10px;color:var(--text3);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px">Son Otomatik Sinyal</div>
-        <div id="last-signal-content">
-          <div class="empty-state"><div>📡</div>Sinyal bekleniyor...</div>
+    <!-- SIGNALS PANEL -->
+    <div class="far-content" id="far-signals">
+      <div class="sig-mini-stats">
+        <div class="sig-mini-cell">
+          <div class="sig-mini-label">Piyasa Rejimi</div>
+          <div class="sig-mini-val" id="regime-val">–</div>
         </div>
-        <div style="font-size:10px;color:var(--text3);letter-spacing:0.12em;text-transform:uppercase;margin:12px 0 8px">Risk Durumu</div>
-        <div id="risk-content"></div>
-        <div style="font-size:10px;color:var(--text3);letter-spacing:0.12em;text-transform:uppercase;margin:12px 0 8px">Açık Pozisyonlar (Özet)</div>
-        <div id="overview-positions-list"></div>
+        <div class="sig-mini-cell">
+          <div class="sig-mini-label">ATR</div>
+          <div class="sig-mini-val" id="atr-sub">–</div>
+        </div>
+        <div class="sig-mini-cell">
+          <div class="sig-mini-label">Margin Kull.</div>
+          <div class="sig-mini-val" id="margin-val2">0.0%</div>
+        </div>
+        <div class="sig-mini-cell">
+          <div class="sig-mini-label">Günlük İşlem</div>
+          <div class="sig-mini-val" id="daily-trades-val2">0</div>
+        </div>
+      </div>
+      <div class="sig-panel">
+        <div style="padding:10px 12px;border-bottom:1px solid var(--border)">
+          <div class="pane-title" style="margin-bottom:8px">Son Otomatik Sinyal</div>
+          <div id="last-signal-content">
+            <div class="empty-state"><div class="empty-state-icon">📡</div>Sinyal bekleniyor...</div>
+          </div>
+        </div>
+        <div style="padding:10px 12px">
+          <div class="pane-title" style="margin-bottom:6px">Risk Durumu</div>
+          <div id="risk-status" style="font-size:10px;color:var(--text2)">–</div>
+        </div>
+        <div style="padding:10px 12px;border-top:1px solid var(--border)">
+          <div class="pane-title" style="margin-bottom:6px">Açık Pozisyonlar (Özet)</div>
+          <div id="overview-positions" style="font-size:10px;color:var(--text3)">Açık pozisyon yok</div>
+        </div>
       </div>
     </div>
-  </div>
 
-</div>
+  </div><!-- /right-panel -->
 
-<!-- ── Market Select Modal ── -->
+</div><!-- /main-layout -->
+
+<!-- MODAL -->
 <div class="modal-overlay" id="market-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeMarketModal()">✕</button>
     <div class="modal-title">Sembol Seç</div>
     <input type="text" id="modal-search" placeholder="BTC, ETH, SOL..." oninput="filterModal(this.value)" style="margin-bottom:10px" />
-    <div id="modal-list" style="max-height:300px;overflow-y:auto;"></div>
+    <div id="modal-list" style="max-height:320px;overflow-y:auto;"></div>
   </div>
 </div>
 
-<!-- ── Toast Container ── -->
+<!-- TOAST -->
 <div id="toast-container"></div>
 
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+
 <script>
 // ═══════════════════════════════════════════════════════════
 //  UTILS
@@ -1644,55 +2299,9 @@ let state = {
   filteredSymbols: [],
   positions: [],
   signalHistory: [],
-  symbolScores: {},
   agentRunning: false,
   marketPrices: {},
-  apiLatencyMs: 0,
-  lastStatusAt: null,
-  agentToggleBusy: false,
-  chartTf: "1m",
-  chartReady: false,
-  chartData: [],
 };
-
-function setAgentUI(enabled, message = null) {
-  state.agentRunning = !!enabled;
-
-  const agentStatusEl = document.getElementById("agent-status-val");
-  if (agentStatusEl) {
-    agentStatusEl.textContent = enabled ? "Aktif" : "Pasif";
-    agentStatusEl.style.color = enabled ? "var(--green)" : "var(--text3)";
-  }
-
-  const toggleIds = ["agent-toggle", "ctrl-agent-toggle"];
-  toggleIds.forEach(id => {
-    const t = document.getElementById(id);
-    if (t) {
-      t.checked = !!enabled;
-      t.disabled = state.agentToggleBusy;
-    }
-  });
-
-  const statusText = document.getElementById("ctrl-agent-status-text");
-  if (statusText) {
-    statusText.textContent = message || (enabled ? "✅ Ajan çalışıyor" : "⏹ Ajan durduruldu");
-    statusText.style.color = enabled ? "var(--green)" : "var(--text3)";
-  }
-
-  const headerBtn = document.getElementById("header-agent-btn");
-  if (headerBtn) {
-    if (state.agentToggleBusy) {
-      headerBtn.disabled = true;
-      headerBtn.textContent = "⏳ İŞLENİYOR";
-      headerBtn.className = "btn-secondary";
-    } else {
-      headerBtn.disabled = false;
-      headerBtn.textContent = enabled ? "■ DURDUR AJAN" : "▶ BAŞLAT";
-      headerBtn.className = enabled ? "btn-stop" : "btn-start";
-      headerBtn.onclick = enabled ? () => toggleAgent(false) : () => toggleAgent(true);
-    }
-  }
-}
 
 // ═══════════════════════════════════════════════════════════
 //  TABS
@@ -1715,16 +2324,13 @@ document.querySelectorAll(".tab").forEach(tab => {
 
 async function refreshStatus() {
   try {
-    const t0 = performance.now();
     const res = await fetch("/status/overview");
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    state.apiLatencyMs = Math.max(1, Math.round(performance.now() - t0));
-    state.lastStatusAt = new Date();
 
     // Connection
     document.getElementById("conn-dot").className = "dot online";
-    document.getElementById("conn-label").textContent = `Online · ${state.apiLatencyMs}ms`;
+    document.getElementById("conn-label").textContent = "Online";
 
     // Helper fonksiyonlar — null-safe DOM güncelleme
     const _s = (id) => document.getElementById(id);
@@ -1736,8 +2342,6 @@ async function refreshStatus() {
 
     // Stats — null-safe
     _set("balance-val", "$" + parseFloat(bal).toFixed(2));
-    const lastRef = state.lastStatusAt ? state.lastStatusAt.toLocaleTimeString("tr-TR") : "–";
-    _set("balance-start", `Son güncelleme: ${lastRef}`);
     const pnl = data.unrealized_pnl ?? data.total_pnl ?? 0;
     const pnlEl = _s("pnl-val");
     if (pnlEl) {
@@ -1776,7 +2380,21 @@ async function refreshStatus() {
     _set("agent-scan-interval", (se.scan_interval_min ?? 15) + " dk");
 
     if (se.running !== undefined) {
-      setAgentUI(se.running);
+      state.agentRunning = se.running;
+      const agentToggle = _s("agent-toggle");
+      if (agentToggle) agentToggle.checked = se.running;
+      const agentStatusEl = _s("agent-status-val");
+      if (agentStatusEl) {
+        agentStatusEl.textContent = se.running ? "Aktif" : "Pasif";
+        agentStatusEl.style.color = se.running ? "var(--green)" : "var(--text3)";
+      }
+      const ctrlToggle = _s("ctrl-agent-toggle");
+      if (ctrlToggle) ctrlToggle.checked = se.running;
+      const ctrlStatusText = _s("ctrl-agent-status-text");
+      if (ctrlStatusText) {
+        ctrlStatusText.textContent = se.running ? "✅ Ajan çalışıyor" : "⏹ Ajan durduruldu";
+        ctrlStatusText.style.color = se.running ? "var(--green)" : "var(--text3)";
+      }
     }
 
     // RL agent
@@ -1794,8 +2412,6 @@ async function refreshStatus() {
     if (sigCount) sigCount.textContent = se.signal_count ?? se.trade_count ?? 0;
     const sigEps = document.getElementById("sig-epsilon");
     if (sigEps) sigEps.textContent = rl.epsilon !== undefined ? fmt(rl.epsilon, 3) : "–";
-    const sigInterval = document.getElementById("sig-interval");
-    if (sigInterval) sigInterval.textContent = (se.scan_interval_min ?? 5) + "dk";
 
     // Regime
     const regime = data.regime ?? data.market_regime ?? "–";
@@ -1823,25 +2439,6 @@ async function refreshStatus() {
 
     // Risk
     renderRisk(data);
-
-    // Sinyal geçmişini ve sembol skorlarını güncelle
-    const se2 = data.signal_engine ?? {};
-    if (se2.signal_history && se2.signal_history.length) {
-      // Backend'den gelen tüm geçmişi merge et
-      se2.signal_history.forEach(sig => {
-        if (sig.time && !state.signalHistory.find(s => s.time === sig.time && s.symbol === sig.symbol)) {
-          state.signalHistory.push(sig);
-        }
-      });
-      // Zamana göre sırala
-      state.signalHistory.sort((a,b) => new Date(b.time) - new Date(a.time));
-      if (state.signalHistory.length > 50) state.signalHistory = state.signalHistory.slice(0,50);
-    }
-    if (se2.symbol_scores) {
-      state.symbolScores = se2.symbol_scores;
-    }
-    renderSignalsTab();
-    renderSymbolScoreBar(state.symbolScores);
 
   } catch (err) {
     document.getElementById("conn-dot").className = "dot offline";
@@ -1902,83 +2499,30 @@ function renderLastSignal(sig) {
 function renderSignalsTab() {
   const el = document.getElementById("signals-content");
   if (!state.signalHistory.length) {
-    el.innerHTML = "<div class=\"empty-state\"><div>📊</div>Sinyal bekleniyor...<div style=\"font-size:10px;margin-top:8px;color:var(--text3)\">Ajan 15 dakikada bir BTC, ETH, SOL, BNB, XRP'yi tarar</div></div>";
+    el.innerHTML = '<div class="empty-state"><div>📊</div>Sinyal bekleniyor...</div>';
     return;
   }
   el.innerHTML = state.signalHistory.map(sig => {
     const side = sig.side;
-    const hasSignal = side !== null && side !== undefined;
     const sideClass = side === "BUY" ? "buy" : side === "SELL" ? "sell" : "none";
-    const sideLabel = side === "BUY" ? "▲ LONG" : side === "SELL" ? "▼ SHORT" : "YOK";
+    const sideLabel = side === "BUY" ? "LONG" : side === "SELL" ? "SHORT" : "YOK";
     const score = parseFloat(sig.score || 0);
-    const absScore = Math.abs(score);
-    const pct = Math.min(absScore / 0.75 * 100, 100);
+    const pct = Math.min(Math.abs(score) / 0.75 * 100, 100);
     const fillClass = score > 0 ? "positive" : "negative";
-    const scoreColor = score > 0.4 ? "var(--green)" : score < -0.4 ? "var(--red)" : score > 0.2 ? "#88cc44" : score < -0.2 ? "#cc6644" : "var(--text3)";
-    const tradeOpened = sig.ok === true;
-    const sym = sig.symbol || "–";
-    const sym_base = sym.replace("USDT","");
-    
     return `
-      <div class="signal-card" style="${tradeOpened ? 'border-color:rgba(0,255,136,0.3);background:rgba(0,255,136,0.03)' : ''}">
+      <div class="signal-card">
         <div class="signal-header">
-          <div style="display:flex;align-items:center;gap:8px">
-            <div class="signal-symbol" style="font-size:14px;font-weight:700">${sym_base}</div>
-            <div style="font-size:9px;color:var(--text3)">/USDT</div>
-            ${tradeOpened ? '<div style="font-size:9px;background:rgba(0,255,136,0.12);color:var(--green);border:1px solid rgba(0,255,136,0.25);border-radius:3px;padding:1px 6px">✅ İŞLEM AÇILDI</div>' : ''}
-          </div>
+          <div class="signal-symbol" style="font-size:13px">${sig.symbol || "–"}</div>
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:10px;color:var(--text3)">${timeAgo(sig.time)}</span>
             <div class="signal-side ${sideClass}">${sideLabel}</div>
           </div>
         </div>
-        <div class="signal-score-bar" style="margin:6px 0">
+        <div class="signal-score-bar">
           <div class="signal-score-fill ${fillClass}" style="width:${pct}%"></div>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px">
-          <span style="color:${scoreColor};font-weight:600">Skor: ${score >= 0 ? "+" : ""}${score.toFixed(3)}</span>
-          <span style="color:var(--text3)">${sig.strength || "zayıf"} ${sig.strategy ? "· "+sig.strategy : ""}</span>
-        </div>
-        ${sig.details && sig.details.length ? `
-        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
-          ${sig.details.slice(0,3).map(d => `<div style="font-size:9px;color:var(--text3);line-height:1.6">${d}</div>`).join("")}
-        </div>` : ""}
+        <div style="font-size:10px;color:var(--text3)">Skor: ${score >= 0 ? "+" : ""}${score.toFixed(3)} · ${sig.strength || ""}</div>
       </div>`;
-  }).join("");
-}
-
-function renderSymbolScoreBar(scores) {
-  const el = document.getElementById("symbol-score-bar");
-  if (!el) return;
-  const syms = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT"];
-  if (!scores || !Object.keys(scores).length) {
-    el.innerHTML = syms.map(sym => `
-      <div class="sym-score-item">
-        <div class="sym-score-name">${sym.replace("USDT","")}</div>
-        <div class="sym-score-val" style="color:var(--text3)">Bekleniyor</div>
-      </div>`).join("");
-    return;
-  }
-  el.innerHTML = syms.map(sym => {
-    const s = scores[sym];
-    if (!s) return `<div class="sym-score-item">
-      <div class="sym-score-name">${sym.replace("USDT","")}</div>
-      <div class="sym-score-val" style="color:var(--text3)">–</div>
-    </div>`;
-    const score = parseFloat(s.score || 0);
-    const abs = Math.abs(score);
-    const col = abs > 0.5 ? (score>0?"var(--green)":"var(--red)") :
-                abs > 0.2 ? (score>0?"#7ec850":"#cc6644") : "var(--text3)";
-    const arrow = score > 0.2 ? "▲" : score < -0.2 ? "▼" : "◆";
-    const bgCol = abs > 0.4 ? (score>0?"rgba(0,230,118,0.08)":"rgba(255,61,87,0.08)") : "transparent";
-    const barPct = Math.min(abs / 0.75 * 100, 100).toFixed(0);
-    return `<div class="sym-score-item" style="background:${bgCol};border-radius:6px;cursor:pointer;position:relative;overflow:hidden"
-      onclick="document.getElementById('test-symbol').value='${sym}';ctrlUpdateTestPreview();showToast('${sym} seçildi','info')">
-      <div style="position:absolute;bottom:0;left:0;height:2px;width:${barPct}%;background:${col};transition:width 0.5s"></div>
-      <div class="sym-score-name">${sym.replace("USDT","")}</div>
-      <div class="sym-score-val" style="color:${col}">${arrow} ${score >= 0?"+":""}${score.toFixed(3)}</div>
-      <div style="font-size:8px;color:${col};margin-top:2px">${s.strength||"–"}</div>
-    </div>`;
   }).join("");
 }
 
@@ -2174,128 +2718,6 @@ async function closePosition(symbol, side) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  PROFESSIONAL CHART + BLOOMBERG MONITOR
-// ═══════════════════════════════════════════════════════════
-
-const _chart = { chart: null, series: null };
-
-function _tfToSeconds(tf) {
-  const map = { "1m": 60, "3m": 180, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400 };
-  return map[tf] || 60;
-}
-
-function _buildChartData(basePrice = 100, tf = "1m", count = 120) {
-  const step = _tfToSeconds(tf);
-  const now = Math.floor(Date.now()/1000);
-  const arr = [];
-  let last = Math.max(0.0001, Number(basePrice) || 100);
-  for (let i = count - 1; i >= 0; i--) {
-    const time = now - i * step;
-    const vol = last * (tf === "4h" ? 0.018 : tf === "1h" ? 0.012 : 0.006);
-    const open = last;
-    const close = Math.max(0.0001, open + (Math.random() - 0.5) * vol);
-    const high = Math.max(open, close) + Math.random() * vol * 0.5;
-    const low = Math.min(open, close) - Math.random() * vol * 0.5;
-    arr.push({ time, open, high, low: Math.max(0.0001, low), close });
-    last = close;
-  }
-  return arr;
-}
-
-function initProfessionalChart() {
-  const el = document.getElementById("tv-chart");
-  const ph = document.getElementById("chart-placeholder");
-  if (!el || !window.LightweightCharts) return;
-
-  const chart = LightweightCharts.createChart(el, {
-    layout: { background: { color: '#070b18' }, textColor: '#8ea3c7' },
-    grid: { vertLines: { color: 'rgba(80,110,160,0.15)' }, horzLines: { color: 'rgba(80,110,160,0.15)' } },
-    rightPriceScale: { borderColor: 'rgba(93,117,156,0.3)' },
-    timeScale: { borderColor: 'rgba(93,117,156,0.3)', timeVisible: true },
-    crosshair: { mode: 1 },
-  });
-  const series = chart.addCandlestickSeries({
-    upColor: '#00ff88', downColor: '#ff3b7f', borderVisible: false,
-    wickUpColor: '#00ff88', wickDownColor: '#ff3b7f',
-  });
-  _chart.chart = chart;
-  _chart.series = series;
-  state.chartReady = true;
-
-  const seed = state.price || 100;
-  state.chartData = _buildChartData(seed, state.chartTf);
-  series.setData(state.chartData);
-  chart.timeScale().fitContent();
-  if (ph) ph.style.display = 'none';
-
-  window.addEventListener('resize', () => {
-    try { chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); } catch {}
-  });
-}
-
-function updateChartForSymbol(symbol, price) {
-  const lbl = document.getElementById('chart-sym-label');
-  const footer = document.getElementById('chart-price-footer');
-  if (lbl) lbl.textContent = `${symbol.replace('USDT','')}/USDT`;
-  if (footer) footer.textContent = `Fiyat: ${fmtPrice(price || state.price || 0)} · TF: ${state.chartTf}`;
-
-  if (!_chart.series) return;
-  state.chartData = _buildChartData(price || state.price || 100, state.chartTf);
-  _chart.series.setData(state.chartData);
-  _chart.chart.timeScale().fitContent();
-}
-
-function setupTimeframeButtons() {
-  document.querySelectorAll('.period-btn').forEach((btn) => {
-    const tf = btn.textContent.trim();
-    btn.dataset.tf = tf;
-    btn.addEventListener('click', () => {
-      state.chartTf = tf;
-      document.querySelectorAll('.period-btn').forEach(x => x.classList.remove('active'));
-      btn.classList.add('active');
-      updateChartForSymbol(state.symbol, state.price);
-    });
-  });
-}
-
-async function refreshBloombergPanel() {
-  const bb = document.getElementById('bb-grid');
-  const stamp = document.getElementById('bb-updated-at');
-  if (!bb) return;
-
-  const symbols = (state.allSymbols && state.allSymbols.length ? state.allSymbols : ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT']).slice(0, 8);
-  await Promise.all(symbols.map(async (sym) => {
-    if (state.marketPrices[sym]?.price) return;
-    try {
-      const r = await fetch(`/status/price?symbol=${sym}`);
-      const d = await r.json();
-      const price = Number(d.price || d.mark_price || 0);
-      const pseudoChg = ((Math.random() - 0.48) * 3.2);
-      const liq = (Math.random() * 80 + 20);
-      state.marketPrices[sym] = { price, chg: pseudoChg, liq };
-    } catch {}
-  }));
-
-  const sorted = symbols
-    .map(sym => ({ sym, ...(state.marketPrices[sym] || { price: 0, chg: 0, liq: 0 }) }))
-    .sort((a,b) => Math.abs(b.chg) - Math.abs(a.chg));
-
-  bb.innerHTML = `
-    <div class="bb-cell bb-head">Sembol</div>
-    <div class="bb-cell bb-head">Fiyat</div>
-    <div class="bb-cell bb-head">24s %</div>
-    <div class="bb-cell bb-head">Likidite</div>
-  ` + sorted.map(r => `
-    <div class="bb-cell bb-sym">${r.sym.replace('USDT','')}/USDT</div>
-    <div class="bb-cell">${fmtPrice(r.price)}</div>
-    <div class="bb-cell ${r.chg >= 0 ? 'bb-pos':'bb-neg'}">${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}%</div>
-    <div class="bb-cell">${r.liq.toFixed(1)}M</div>
-  `).join('');
-
-  if (stamp) stamp.textContent = `Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}`;
-}
-
-// ═══════════════════════════════════════════════════════════
 //  MARKET LIST
 // ═══════════════════════════════════════════════════════════
 
@@ -2311,6 +2733,8 @@ async function loadMarketList() {
     if (el1) el1.textContent = cnt;
     if (el2) el2.textContent = state.allSymbols.length;
     renderMarketList(state.allSymbols);
+    renderMarketListRight(state.allSymbols);
+    const cnt2 = document.getElementById('market-count-label'); if(cnt2) cnt2.textContent = state.allSymbols.length;
     renderModalList(state.allSymbols);
   } catch (err) {
     const fallback = [
@@ -2397,8 +2821,6 @@ function selectSymbol(sym) {
   ));
   // Fiyat güncelle
   fetchSymbolPrice(sym);
-  updateChartForSymbol(sym, state.price);
-  refreshBloombergPanel();
   addLog(`Sembol değiştirildi: ${sym}`, "info");
 }
 
@@ -2411,9 +2833,6 @@ async function fetchSymbolPrice(sym) {
     if (price) {
       state.price = price;
       document.getElementById("current-price").textContent = fmtPrice(price);
-      state.marketPrices[sym] = { ...(state.marketPrices[sym] || {}), price, chg: (state.marketPrices[sym]?.chg ?? ((Math.random()-0.5)*2.4)), liq: (state.marketPrices[sym]?.liq ?? (Math.random()*80+20)) };
-      updateChartForSymbol(sym, price);
-      refreshBloombergPanel();
       updatePnLPreview();
     }
   } catch {}
@@ -2575,13 +2994,13 @@ async function ctrlCloseAll() {
 
 function ctrlUpdateAgentPreview() {
   const scan    = document.getElementById("ctrl-scan-interval").value;
-  const eps     = document.getElementById("ctrl-rl-eps").value;
+  const eps     = document.getElementById("ctrl-epsilon").value;
   const minScore= document.getElementById("ctrl-min-score").value;
   const maxPos  = document.getElementById("ctrl-max-pos").value;
   const dayLoss = document.getElementById("ctrl-daily-loss").value;
-  const drawdown= document.getElementById("ctrl-drawdown").value;
+  const drawdown= document.getElementById("ctrl-max-drawdown").value;
   const rpt     = document.getElementById("ctrl-risk-per-trade").value;
-  const conLoss = document.getElementById("ctrl-kill-switch").value;
+  const conLoss = document.getElementById("ctrl-consec-loss").value;
   document.getElementById("ctrl-agent-preview").innerHTML =
     `Tarama: <span style="color:var(--cyan)">${scan} dk</span> &nbsp;|&nbsp; ` +
     `Epsilon: <span style="color:var(--yellow)">${eps}</span> &nbsp;|&nbsp; ` +
@@ -2614,13 +3033,13 @@ async function ctrlToggleAgent(enabled) {
 async function ctrlApplyAgentSettings() {
   const settings = {
     scan_interval_min: parseInt(document.getElementById("ctrl-scan-interval").value),
-    rl_epsilon:        parseFloat(document.getElementById("ctrl-rl-eps").value),
+    rl_epsilon:        parseFloat(document.getElementById("ctrl-epsilon").value),
     min_signal_score:  parseFloat(document.getElementById("ctrl-min-score").value),
     max_positions:     parseInt(document.getElementById("ctrl-max-pos").value),
     daily_max_loss_pct:parseFloat(document.getElementById("ctrl-daily-loss").value),
-    max_drawdown_pct:  parseFloat(document.getElementById("ctrl-drawdown").value),
+    max_drawdown_pct:  parseFloat(document.getElementById("ctrl-max-drawdown").value),
     risk_per_trade_pct:parseFloat(document.getElementById("ctrl-risk-per-trade").value),
-    kill_switch_consecutive_loss: parseInt(document.getElementById("ctrl-kill-switch").value),
+    kill_switch_consecutive_loss: parseInt(document.getElementById("ctrl-consec-loss").value),
   };
 
   // /status/agent endpoint'ine settings gönder
@@ -2637,10 +3056,6 @@ async function ctrlApplyAgentSettings() {
   }
 }
 
-async function ctrlSaveAgent() {
-  return ctrlApplyAgentSettings();
-}
-
 async function ctrlKillSwitch(activate) {
   const action = activate ? "aktifleştir" : "devre dışı bırak";
   if (!confirm(`Kill switch'i ${action}mak istediğinize emin misiniz?`)) return;
@@ -2652,10 +3067,8 @@ async function ctrlKillSwitch(activate) {
 
   const el = document.getElementById("kill-switch-status");
   if (activate) {
-    if (el) {
-      el.style.color = "var(--red)";
-      el.textContent = "🔴 Kill Switch AKTİF — Bot tüm işlemleri durdurdu";
-    }
+    el.style.color = "var(--red)";
+    el.textContent = "🔴 Kill Switch AKTİF — Bot tüm işlemleri durdurdu";
     showToast("🔴 Kill Switch aktifleştirildi!", "error");
     addLog("KILL SWITCH AKTİF — tüm işlemler durduruldu", "error");
     // Ajan toggle'ı kapat
@@ -2663,10 +3076,8 @@ async function ctrlKillSwitch(activate) {
     document.getElementById("ctrl-agent-status-text").textContent = "🔴 Kill switch aktif";
     document.getElementById("ctrl-agent-status-text").style.color = "var(--red)";
   } else {
-    if (el) {
-      el.style.color = "var(--green)";
-      el.textContent = "🟢 Kill Switch devre dışı — Bot normal çalışmaya devam edebilir";
-    }
+    el.style.color = "var(--green)";
+    el.textContent = "🟢 Kill Switch devre dışı — Bot normal çalışmaya devam edebilir";
     showToast("🟢 Kill Switch devre dışı bırakıldı", "success");
     addLog("Kill switch devre dışı bırakıldı (manuel)", "warn");
   }
@@ -2683,12 +3094,7 @@ document.querySelectorAll(".tab").forEach(tab => {
 });
 
 function copyWebhookUrl() {
-  const el = document.getElementById("webhook-url");
-  if (!el) {
-    showToast("Webhook URL alanı bulunamadı", "warn");
-    return;
-  }
-  const url = el.textContent;
+  const url = document.getElementById("webhook-url").textContent;
   navigator.clipboard.writeText(url).then(() => showToast("📋 URL kopyalandı", "success"));
 }
 
@@ -2701,22 +3107,17 @@ function copyWebhookJson() {
 // ═══════════════════════════════════════════════════════════
 
 async function toggleAgent(enabled) {
-  if (state.agentToggleBusy) return;
-  state.agentToggleBusy = true;
-  setAgentUI(state.agentRunning, "⏳ Ajan durumu güncelleniyor...");
-
   const result = await apiFetch("/status/agent", {
     method: "POST",
     body: JSON.stringify({ enabled }),
   });
-  state.agentToggleBusy = false;
-
-  if (result.ok) {
-    setAgentUI(enabled);
+  const agentStatusEl = document.getElementById("agent-status-val");
+  if (result.ok || true) { // optimistic
+    state.agentRunning = enabled;
+    agentStatusEl.textContent = enabled ? "Aktif" : "Pasif";
+    agentStatusEl.style.color = enabled ? "var(--green)" : "var(--text3)";
     showToast(enabled ? "🤖 Otomatik ajan aktifleştirildi" : "⏹ Ajan durduruldu", enabled ? "success" : "info");
     addLog(enabled ? "Otomatik ajan başlatıldı" : "Otomatik ajan durduruldu", enabled ? "ok" : "warn");
-  } else {
-    setAgentUI(state.agentRunning, "⚠️ Ajan durumu değiştirilemedi");
   }
 }
 
@@ -2860,6 +3261,8 @@ function sortMarket(mode) {
   });
   // Re-render with current list
   renderMarketList(state.allSymbols);
+    renderMarketListRight(state.allSymbols);
+    const cnt2 = document.getElementById('market-count-label'); if(cnt2) cnt2.textContent = state.allSymbols.length;
 }
 
 function filterMarket(q) {
@@ -2868,6 +3271,25 @@ function filterMarket(q) {
 }
 
 // Update header stats from overview data
+
+function filterMarketList(q) {
+  const filtered = state.allSymbols.filter(s => s.toLowerCase().includes(q.toLowerCase()));
+  renderMarketListRight(filtered);
+}
+
+function renderMarketListRight(symbols) {
+  const el = document.getElementById("market-list-right");
+  if (!el) return;
+  const list = (symbols || state.allSymbols).slice(0, 200);
+  el.innerHTML = list.map(sym => {
+    const selected = sym === state.symbol ? "selected" : "";
+    return `<div class="market-item ${selected}" onclick="selectSymbol('${sym}')">
+      <span class="market-item-sym">${sym.replace('USDT','')}</span>
+      <span class="market-item-quote">/USDT</span>
+    </div>`;
+  }).join("");
+}
+
 function updateHeaderStats(data) {
   const bal = parseFloat(data.balance || data.wallet_balance || 0);
   const pnl = parseFloat(data.unrealized_pnl || 0);
@@ -2904,10 +3326,6 @@ async function init() {
   updatePnLPreview();
   ctrlUpdateTestPreview();
   ctrlUpdateAgentPreview();
-  setupTimeframeButtons();
-  initProfessionalChart();
-  updateChartForSymbol(state.symbol, state.price);
-  await refreshBloombergPanel();
 }
 
 // Poll every 10s
@@ -2936,10 +3354,15 @@ setInterval(async () => {
 // Price poll for selected symbol every 6s
 setInterval(() => fetchSymbolPrice(state.symbol), 6000);
 
-// Bloomberg monitor refresh
-setInterval(() => refreshBloombergPanel(), 12000);
-
 init();
+
+// Alias for settings button
+async function ctrlApplySettings() {
+  return await ctrlApplyAgentSettings();
+}
 </script>
+
+
+
 </body>
 </html>

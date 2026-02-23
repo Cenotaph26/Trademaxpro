@@ -96,13 +96,8 @@ class StrategyManager:
             return {"ok": False, "reason": msg}
 
         # ── 2. Risk engine check ───────────────────────────────────
-        # Önce pozisyon sayılarını ve equity'yi güncelle
+        # Önce pozisyon sayılarını güncelle (güncel veri ile)
         await self._update_position_counts(symbol)
-        try:
-            bal = await self.data.get_balance()
-            await self.risk.update_equity(bal.get("total", 0))
-        except Exception:
-            pass
         can, reason = self.risk.can_trade(side, symbol)
         if not can:
             return {"ok": False, "reason": reason}
@@ -112,13 +107,9 @@ class StrategyManager:
         decision = None
         if self.rl_agent and not is_manual:
             decision = self.rl_agent.decide()
-            # RL henüz eğitilmemişse (epsilon >= 0.5) trade_allowed'ı ignore et
-            if not decision.trade_allowed and self.rl_agent.epsilon < 0.5:
-                logger.info(f"🤖 RL engelledi: trade_allowed=0 (ε={self.rl_agent.epsilon:.3f})")
-                return {"ok": False, "reason": "RL agent: trade_allowed=0"}
-            elif not decision.trade_allowed:
-                logger.info(f"🤖 RL eğitim aşaması (ε={self.rl_agent.epsilon:.3f}) — bypass")
             logger.info(f"🤖 RL: {decision.strategy} | {decision.risk_mode} | trade={decision.trade_allowed}")
+            if not decision.trade_allowed:
+                return {"ok": False, "reason": "RL agent: trade_allowed=0"}
 
         risk_mode_str = decision.risk_mode if decision else "normal"
         actual_leverage = leverage  # dashboard'dan gelen kaldıracı kullan
