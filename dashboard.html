@@ -3,31 +3,30 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Trademaxpro — Futures Bot</title>
+<title>AI Trading Bot — Trademaxpro</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:        #0a0c0f;
-    --bg2:       #0f1318;
-    --bg3:       #141920;
-    --bg4:       #1a2030;
-    --border:    #1e2a38;
-    --border2:   #253040;
-    --text:      #c8d8e8;
-    --text2:     #6a8aaa;
-    --text3:     #3a5070;
-    --green:     #00e676;
-    --green2:    #00c853;
-    --red:       #ff3d57;
-    --red2:      #c62828;
-    --cyan:      #00bcd4;
-    --yellow:    #ffd740;
-    --orange:    #ff6d00;
-    --accent:    #0d47a1;
-    --radius:    8px;
-    --mono:      'JetBrains Mono', monospace;
-    --sans:      'Syne', sans-serif;
+    --bg:      #060810;
+    --bg2:     #0b0e1a;
+    --bg3:     #101422;
+    --bg4:     #151928;
+    --border:  #1a2035;
+    --border2: #222840;
+    --text:    #d0e0f0;
+    --text2:   #6080a0;
+    --text3:   #304060;
+    --green:   #00ff88;
+    --green2:  #00cc66;
+    --red:     #ff3366;
+    --red2:    #cc2255;
+    --cyan:    #00d4ff;
+    --yellow:  #ffcc00;
+    --orange:  #ff8800;
+    --purple:  #8844ff;
+    --mono:    'Share Tech Mono', monospace;
+    --sans:    'Rajdhani', sans-serif;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -36,24 +35,41 @@
     background: var(--bg);
     color: var(--text);
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 12px;
     min-height: 100vh;
     overflow-x: hidden;
   }
 
-  /* ── Scrollbar ── */
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
   ::-webkit-scrollbar-track { background: var(--bg2); }
   ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 
+  /* ── Ticker Bar ── */
+  .ticker-bar {
+    background: #000;
+    border-bottom: 1px solid var(--border);
+    padding: 4px 16px;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 11px;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+  .ticker-item { display: inline-flex; gap: 6px; align-items: center; }
+  .ticker-sym { color: var(--text2); }
+  .ticker-price { color: var(--text); font-weight: 600; }
+  .ticker-chg.pos { color: var(--green); }
+  .ticker-chg.neg { color: var(--red); }
+
   /* ── Header ── */
   header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 20px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg2);
     position: sticky;
     top: 0;
     z-index: 100;
@@ -61,321 +77,305 @@
 
   .logo {
     font-family: var(--sans);
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
-    color: #fff;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--cyan);
+    text-transform: uppercase;
+  }
+  .logo small { color: var(--text2); font-size: 10px; font-weight: 400; display: block; letter-spacing: 3px; margin-top: -2px; }
+
+  .header-meta {
     display: flex;
     align-items: center;
-    gap: 8px;
-  }
-  .logo span { color: var(--green); }
-
-  .header-status {
-    display: flex;
-    align-items: center;
-    gap: 16px;
+    gap: 20px;
+    font-size: 12px;
   }
 
+  .hm-stat { text-align: center; }
+  .hm-label { color: var(--text3); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .hm-value { font-family: var(--sans); font-size: 16px; font-weight: 700; }
+
+  .header-controls { display: flex; align-items: center; gap: 12px; }
+  .status-pill {
+    display: flex; align-items: center; gap: 5px;
+    background: rgba(0,255,136,0.08);
+    border: 1px solid rgba(0,255,136,0.2);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 10px; color: var(--green);
+  }
   .status-dot {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    color: var(--text2);
-  }
-  .dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--text3);
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
     animation: pulse 2s infinite;
   }
-  .dot.online { background: var(--green); }
-  .dot.offline { background: var(--red); animation: none; }
+  .status-dot.offline { background: var(--red); animation: none; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+  .btn-start {
+    background: rgba(0,212,255,0.1);
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+  }
+  .btn-stop {
+    background: rgba(255,51,102,0.1);
+    border: 1px solid var(--red);
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
   }
 
-  .header-balance {
-    font-family: var(--sans);
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--green);
-  }
-
-  /* ── Layout ── */
-  .layout {
+  /* ── Stats Bar ── */
+  .stats-bar {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
     display: grid;
-    grid-template-columns: 1fr 340px;
-    grid-template-rows: auto 1fr;
+    grid-template-columns: repeat(8, 1fr);
     gap: 0;
-    height: calc(100vh - 49px);
   }
 
-  /* ── Left Panel ── */
-  .left-panel {
-    display: flex;
-    flex-direction: column;
+  .stat-item {
+    padding: 10px 16px;
     border-right: 1px solid var(--border);
+  }
+  .stat-item:last-child { border-right: none; }
+  .stat-lbl { font-size: 9px; color: var(--text3); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 3px; }
+  .stat-val {
+    font-family: var(--sans);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+  }
+  .stat-sub { font-size: 10px; color: var(--text3); margin-top: 2px; }
+  .stat-val.cyan { color: var(--cyan); }
+  .stat-val.green { color: var(--green); }
+  .stat-val.red { color: var(--red); }
+  .stat-val.yellow { color: var(--yellow); }
+  .stat-val.purple { color: var(--purple); }
+
+  /* ── Main Layout ── */
+  .main-layout {
+    display: grid;
+    grid-template-columns: 1fr 360px 280px;
+    height: calc(100vh - 112px);
     overflow: hidden;
+  }
+
+  /* ── Center Panel ── */
+  .center-panel {
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px;
   }
 
   /* ── Tabs ── */
   .tabs {
     display: flex;
     border-bottom: 1px solid var(--border);
-    background: var(--bg2);
-    padding: 0 16px;
+    margin-bottom: 16px;
+    gap: 0;
   }
   .tab {
-    padding: 10px 14px;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.05em;
+    padding: 8px 16px;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--text2);
+    color: var(--text3);
     cursor: pointer;
     border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
     transition: all 0.15s;
   }
-  .tab:hover { color: var(--text); }
+  .tab:hover { color: var(--text2); }
   .tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
 
-  /* ── Panel Content ── */
-  .panel-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-    display: none;
-  }
+  .panel-content { display: none; }
   .panel-content.active { display: block; }
 
-  /* ── Cards ── */
-  .card {
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    margin-bottom: 10px;
-  }
-  .card-title {
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-bottom: 10px;
+  /* ── Market Grid ── */
+  .piyasa-header {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  /* ── Stats Grid ── */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
     gap: 8px;
-    margin-bottom: 10px;
-  }
-  .stat-box {
-    background: var(--bg4);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 12px;
-  }
-  .stat-label {
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-bottom: 4px;
-  }
-  .stat-value {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--text);
-    font-family: var(--sans);
-  }
-  .stat-value.green { color: var(--green); }
-  .stat-value.red   { color: var(--red); }
-  .stat-value.cyan  { color: var(--cyan); }
-  .stat-sub {
-    font-size: 10px;
-    color: var(--text3);
-    margin-top: 2px;
-  }
-
-  /* ── Signal Card ── */
-  .signal-card {
-    background: var(--bg4);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px;
-    margin-bottom: 8px;
-  }
-  .signal-header {
-    display: flex;
+    margin-bottom: 12px;
     align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
   }
-  .signal-symbol {
-    font-family: var(--sans);
-    font-size: 14px;
-    font-weight: 600;
-    color: #fff;
-  }
-  .signal-side {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 4px;
-    letter-spacing: 0.05em;
-  }
-  .signal-side.buy  { background: rgba(0,230,118,0.15); color: var(--green); }
-  .signal-side.sell { background: rgba(255,61,87,0.15);  color: var(--red); }
-  .signal-side.none { background: rgba(106,138,170,0.15); color: var(--text2); }
-
-  .signal-score-bar {
-    height: 3px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-    margin-bottom: 8px;
-  }
-  .signal-score-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.5s ease;
-  }
-  .signal-score-fill.positive { background: var(--green); }
-  .signal-score-fill.negative { background: var(--red); }
-
-  .signal-details {
-    display: none;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-  }
-  .signal-details.open { display: block; }
-  .signal-detail-row {
-    font-size: 10px;
-    color: var(--text2);
-    padding: 2px 0;
-    display: flex;
-    justify-content: space-between;
-  }
-
-  /* ── Positions Table ── */
-  .pos-table { width: 100%; border-collapse: collapse; }
-  .pos-table th {
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text3);
-    text-align: left;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border);
-  }
-  .pos-table td {
-    padding: 8px;
-    border-bottom: 1px solid var(--border);
-    font-size: 12px;
-    color: var(--text2);
-  }
-  .pos-table tr:last-child td { border-bottom: none; }
-  .pos-table tr:hover td { background: var(--bg4); }
-  .pos-symbol-td { color: #fff !important; font-weight: 500; }
-  .pnl-pos { color: var(--green) !important; }
-  .pnl-neg { color: var(--red)   !important; }
-
-  .close-pos-btn {
-    background: rgba(255,61,87,0.1);
-    border: 1px solid rgba(255,61,87,0.3);
-    color: var(--red);
-    font-size: 10px;
+  .piyasa-header input {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text);
     font-family: var(--mono);
-    padding: 3px 8px;
+    font-size: 11px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    flex: 1;
+    outline: none;
+  }
+  .sort-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 10px;
     border-radius: 4px;
     cursor: pointer;
-    transition: all 0.15s;
   }
-  .close-pos-btn:hover {
-    background: rgba(255,61,87,0.25);
+  .sort-btn.active { border-color: var(--cyan); color: var(--cyan); }
+
+  .coin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 4px;
+  }
+  .coin-cell {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .coin-cell:hover { border-color: var(--border2); background: var(--bg4); }
+  .coin-cell.selected { border-color: var(--cyan) !important; background: rgba(0,212,255,0.06) !important; }
+  .coin-sym { font-family: var(--sans); font-size: 12px; font-weight: 600; color: var(--text); }
+  .coin-price { font-size: 10px; color: var(--text2); margin-top: 1px; }
+  .coin-chg { font-size: 11px; font-weight: 600; margin-top: 2px; }
+  .coin-chg.pos { color: var(--green); }
+  .coin-chg.neg { color: var(--red); }
+
+  /* ── Chart + Strategy Area ── */
+  .chart-area {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
   }
 
-  .empty-state {
-    text-align: center;
-    padding: 32px 16px;
-    color: var(--text3);
-    font-size: 12px;
-  }
-  .empty-state div { margin-bottom: 6px; font-size: 24px; }
-
-  /* ── Log Panel ── */
-  .log-area {
-    background: #080a0d;
+  .chart-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 10px 12px;
-    height: 320px;
-    overflow-y: auto;
-    font-size: 11px;
-    line-height: 1.6;
+    overflow: hidden;
   }
-  .log-line { padding: 1px 0; }
-  .log-line.info  { color: var(--text2); }
-  .log-line.ok    { color: var(--green); }
-  .log-line.warn  { color: var(--yellow); }
-  .log-line.error { color: var(--red); }
-  .log-time { color: var(--text3); margin-right: 8px; }
-
-  /* ── Right Panel ── */
-  .right-panel {
+  .chart-header {
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .chart-sym { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--text); }
+  .chart-body { padding: 12px; min-height: 180px; display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 11px; }
+
+  .period-btns { display: flex; gap: 2px; }
+  .period-btn {
+    background: none; border: none;
+    color: var(--text3); font-family: var(--mono); font-size: 10px;
+    padding: 2px 6px; cursor: pointer; border-radius: 3px;
+  }
+  .period-btn.active { background: var(--bg4); color: var(--cyan); }
+
+  /* ── Strategy Section ── */
+  .strategy-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .strategy-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .strategy-title { font-family: var(--sans); font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: 0.05em; text-transform: uppercase; }
+  .live-badge {
+    background: rgba(0,255,136,0.1);
+    border: 1px solid rgba(0,255,136,0.3);
+    color: var(--green);
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 0.1em;
+  }
+  .best-badge {
+    background: rgba(0,212,255,0.1);
+    border: 1px solid rgba(0,212,255,0.3);
+    color: var(--cyan);
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 3px;
+  }
+
+  .strategy-list { padding: 10px 12px; }
+  .strategy-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .strategy-row:last-child { border-bottom: none; }
+  .strat-name { font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; }
+  .strat-trades { font-size: 10px; color: var(--text3); }
+  .strat-bar-wrap { flex: 1; margin: 0 12px; }
+  .strat-bar-bg { height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+  .strat-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .strat-wr { font-size: 10px; color: var(--text2); white-space: nowrap; }
+  .strat-pf { font-family: var(--sans); font-size: 13px; font-weight: 700; color: var(--green); }
+
+  /* ── Right Panel (Trade + Agent) ── */
+  .right-panel {
+    border-right: 1px solid var(--border);
     overflow-y: auto;
     background: var(--bg2);
   }
 
-  /* ── Trade Form ── */
   .trade-form {
-    padding: 14px 16px;
+    padding: 14px;
     border-bottom: 1px solid var(--border);
   }
 
   .form-title {
-    font-size: 10px;
-    letter-spacing: 0.12em;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
     text-transform: uppercase;
     color: var(--text3);
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
 
   .symbol-display {
-    background: var(--bg4);
+    background: var(--bg3);
     border: 1px solid var(--border2);
-    border-radius: 6px;
+    border-radius: 5px;
     padding: 10px 12px;
-    margin-bottom: 10px;
-    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    cursor: pointer;
+    margin-bottom: 10px;
     transition: border-color 0.15s;
   }
   .symbol-display:hover { border-color: var(--cyan); }
-  .symbol-name {
-    font-family: var(--sans);
-    font-size: 16px;
-    font-weight: 700;
-    color: #fff;
-  }
-  .symbol-price {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--green);
-  }
+  .symbol-name { font-family: var(--sans); font-size: 15px; font-weight: 700; color: var(--text); }
+  .symbol-price { font-family: var(--sans); font-size: 15px; font-weight: 700; color: var(--cyan); }
 
   .form-row {
     display: grid;
@@ -383,181 +383,71 @@
     gap: 8px;
     margin-bottom: 8px;
   }
-  .form-group { display: flex; flex-direction: column; gap: 4px; }
-  .form-label {
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text3);
-  }
 
-  input, select {
-    background: var(--bg4);
+  .form-group { display: flex; flex-direction: column; gap: 3px; }
+  .form-label { font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; }
+
+  input[type="number"], input[type="text"], select {
+    background: var(--bg3);
     border: 1px solid var(--border2);
-    border-radius: 6px;
     color: var(--text);
     font-family: var(--mono);
-    font-size: 13px;
-    padding: 8px 10px;
-    width: 100%;
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 4px;
     outline: none;
+    width: 100%;
     transition: border-color 0.15s;
-    -webkit-appearance: none;
   }
   input:focus, select:focus { border-color: var(--cyan); }
-  input[type=number]::-webkit-inner-spin-button { opacity: 0.3; }
+  select option { background: var(--bg3); }
 
-  .qty-input-wrap {
-    position: relative;
-    margin-bottom: 8px;
+  .pnl-preview-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
   }
-  .qty-label-abs {
-    position: absolute;
-    right: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 10px;
-    color: var(--text3);
-    pointer-events: none;
-  }
+  .pnl-preview-label { font-size: 10px; color: var(--text3); margin-right: 6px; }
+  #pnl-preview { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--green); }
 
-  /* ── Buttons ── */
   .btn-long {
     width: 100%;
-    padding: 13px;
+    padding: 11px;
     background: var(--green);
+    border: none;
     color: #000;
     font-family: var(--sans);
-    font-size: 14px;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    border: none;
-    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    border-radius: 5px;
     cursor: pointer;
-    margin-bottom: 8px;
-    transition: all 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
+    margin-bottom: 6px;
+    transition: opacity 0.15s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
   }
-  .btn-long:hover { background: #00ff88; transform: translateY(-1px); }
-  .btn-long:active { transform: translateY(0); }
-  .btn-long:disabled { background: var(--border); color: var(--text3); cursor: not-allowed; transform: none; }
-
+  .btn-long:hover { opacity: 0.85; }
   .btn-short {
     width: 100%;
-    padding: 13px;
+    padding: 11px;
     background: var(--red);
+    border: none;
     color: #fff;
     font-family: var(--sans);
-    font-size: 14px;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    border: none;
-    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    border-radius: 5px;
     cursor: pointer;
-    transition: all 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
+    transition: opacity 0.15s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
   }
-  .btn-short:hover { background: #ff5555; transform: translateY(-1px); }
-  .btn-short:active { transform: translateY(0); }
-  .btn-short:disabled { background: var(--border); color: var(--text3); cursor: not-allowed; transform: none; }
+  .btn-short:hover { opacity: 0.85; }
 
-  .btn-secondary {
-    background: var(--bg4);
-    border: 1px solid var(--border2);
-    color: var(--text2);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 7px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .btn-secondary:hover { border-color: var(--cyan); color: var(--cyan); }
-
-  /* ── Futures Market ── */
-  .market-section {
-    flex: 1;
-    border-top: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-  }
-  .market-header {
-    padding: 12px 16px 8px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 1px solid var(--border);
-  }
-  .market-title {
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text3);
-  }
-  .market-count {
-    background: var(--bg4);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 2px 10px;
-    font-size: 10px;
-    color: var(--text2);
-  }
-  .market-search {
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .market-search input {
-    background: var(--bg4);
-    border-color: var(--border);
-    font-size: 12px;
-    padding: 7px 10px;
-  }
-  .market-list {
-    flex: 1;
-    overflow-y: auto;
-    max-height: 280px;
-  }
-  .market-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-  .market-item:hover { background: var(--bg3); }
-  .market-item.selected { background: rgba(0,188,212,0.08); border-right: 2px solid var(--cyan); }
-  .market-sym {
-    font-weight: 500;
-    color: #fff;
-    font-size: 12px;
-  }
-  .market-sym span { color: var(--text3); font-weight: 400; font-size: 11px; }
-  .market-add-btn {
-    background: rgba(0,188,212,0.1);
-    border: 1px solid rgba(0,188,212,0.25);
-    color: var(--cyan);
-    font-size: 10px;
-    font-family: var(--mono);
-    padding: 3px 9px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.15s;
-    white-space: nowrap;
-  }
-  .market-add-btn:hover { background: rgba(0,188,212,0.2); }
-
-  /* ── Agent Status Panel ── */
+  /* ── Agent Section ── */
   .agent-section {
-    border-top: 1px solid var(--border);
-    padding: 12px 16px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
   }
 
   .agent-toggle {
@@ -566,23 +456,20 @@
     justify-content: space-between;
     margin-bottom: 10px;
   }
+  .agent-label { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text3); }
 
-  .toggle-switch {
-    position: relative;
-    width: 36px; height: 20px;
-  }
+  .toggle-switch { position: relative; width: 38px; height: 20px; flex-shrink: 0; }
   .toggle-switch input { opacity: 0; width: 0; height: 0; }
   .toggle-slider {
-    position: absolute;
-    inset: 0;
+    position: absolute; inset: 0;
     background: var(--bg4);
     border: 1px solid var(--border2);
     border-radius: 20px;
     cursor: pointer;
     transition: 0.2s;
   }
-  .toggle-slider:before {
-    content: '';
+  .toggle-slider::before {
+    content: "";
     position: absolute;
     width: 14px; height: 14px;
     left: 2px; top: 2px;
@@ -590,74 +477,216 @@
     border-radius: 50%;
     transition: 0.2s;
   }
-  input:checked + .toggle-slider { background: rgba(0,230,118,0.2); border-color: var(--green); }
-  input:checked + .toggle-slider:before { transform: translateX(16px); background: var(--green); }
+  input:checked + .toggle-slider { background: rgba(0,255,136,0.15); border-color: var(--green); }
+  input:checked + .toggle-slider::before { transform: translateX(18px); background: var(--green); }
 
-  .agent-info {
+  .agent-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 6px;
   }
-  .agent-info-item {
-    background: var(--bg4);
+  .agent-cell {
+    background: var(--bg3);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 10px;
+    border-radius: 4px;
+    padding: 7px 9px;
   }
-  .agent-info-label {
-    font-size: 9px;
+  .agent-cell-label { font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
+  .agent-cell-val { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--text); }
+
+  /* ── Positions in right panel ── */
+  .pos-section {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-title {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
     color: var(--text3);
-    margin-bottom: 3px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
-  .agent-info-value {
-    font-size: 13px;
-    font-weight: 500;
+  .refresh-btn {
+    background: none; border: 1px solid var(--border2);
+    color: var(--text3); font-size: 10px; padding: 2px 8px;
+    border-radius: 3px; cursor: pointer; font-family: var(--mono);
+  }
+  .refresh-btn:hover { color: var(--text2); border-color: var(--text2); }
+
+  /* ── Market List (right side) ── */
+  .market-section {
+    padding: 12px 14px;
+  }
+  .market-search input {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
     color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    width: 100%;
+    outline: none;
+    margin-bottom: 8px;
+  }
+  .market-list { max-height: 300px; overflow-y: auto; }
+  .market-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .market-item:hover { background: var(--bg4); }
+  .market-sym { font-family: var(--sans); font-size: 12px; font-weight: 600; color: var(--text); }
+  .market-add-btn {
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.2);
+    color: var(--cyan);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .market-item:hover .market-add-btn { opacity: 1; }
+
+  /* ── Far Right: Logs/Signals Panel ── */
+  .far-right {
+    overflow-y: auto;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
   }
 
-  /* ── Toast Notifications ── */
+  /* positions tab in center panel */
+  .pos-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+  .pos-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .pos-sym { font-family: var(--sans); font-size: 15px; font-weight: 700; color: var(--text); }
+  .side-badge {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .side-badge.long { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); color: var(--green); }
+  .side-badge.short { background: rgba(255,51,102,0.1); border: 1px solid rgba(255,51,102,0.3); color: var(--red); }
+
+  /* ── Log Area ── */
+  .log-area {
+    flex: 1;
+    padding: 10px 12px;
+    overflow-y: auto;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .log-line { padding: 1px 0; }
+  .log-line.info { color: var(--text2); }
+  .log-line.ok { color: var(--green); }
+  .log-line.warn { color: var(--yellow); }
+  .log-line.error { color: var(--red); }
+  .log-time { color: var(--text3); margin-right: 6px; }
+
+  .log-toolbar {
+    display: flex;
+    gap: 4px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    align-items: center;
+    background: var(--bg2);
+  }
+  .log-filter-btn {
+    background: none;
+    border: 1px solid var(--border2);
+    color: var(--text3);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .log-filter-btn.active { border-color: var(--cyan); color: var(--cyan); }
+  .log-filter-btn:hover { border-color: var(--text2); color: var(--text2); }
+
+  /* ── Signals in far-right ── */
+  .signal-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+  }
+  .signal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .signal-symbol { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--text); }
+  .signal-side {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .signal-side.buy { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); color: var(--green); }
+  .signal-side.sell { background: rgba(255,51,102,0.1); border: 1px solid rgba(255,51,102,0.3); color: var(--red); }
+  .signal-side.none { background: var(--bg4); border: 1px solid var(--border2); color: var(--text3); }
+  .signal-score-bar { height: 2px; background: var(--border2); border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
+  .signal-score-fill { height: 100%; border-radius: 2px; }
+  .signal-score-fill.positive { background: var(--green); }
+  .signal-score-fill.negative { background: var(--red); }
+  .signal-detail-row { font-size: 10px; color: var(--text3); padding: 1px 0; }
+
+  /* ── Toast ── */
   #toast-container {
     position: fixed;
     bottom: 20px;
     right: 20px;
     z-index: 9999;
     display: flex;
-    flex-direction: column;
+    flex-direction: column-reverse;
     gap: 8px;
-    pointer-events: none;
   }
   .toast {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
-    border-radius: 8px;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 5px;
     font-size: 12px;
-    font-family: var(--mono);
-    pointer-events: auto;
-    animation: slideIn 0.25s ease, fadeOut 0.4s ease 3.6s forwards;
-    min-width: 240px;
-    max-width: 360px;
-    border: 1px solid;
+    animation: fadeIn 0.3s ease;
+    min-width: 200px;
+    max-width: 320px;
     backdrop-filter: blur(8px);
   }
-  .toast.error   { background: rgba(255,61,87,0.12);  border-color: rgba(255,61,87,0.4);  color: #ff7070; }
-  .toast.success { background: rgba(0,230,118,0.12); border-color: rgba(0,230,118,0.4); color: #00e676; }
-  .toast.info    { background: rgba(0,188,212,0.12);  border-color: rgba(0,188,212,0.4);  color: #00bcd4; }
-  .toast.warn    { background: rgba(255,215,64,0.12); border-color: rgba(255,215,64,0.4); color: #ffd740; }
-  .toast-icon { font-size: 14px; flex-shrink: 0; }
-  .toast-msg { flex: 1; word-break: break-word; }
-
-  @keyframes slideIn {
-    from { transform: translateX(20px); opacity: 0; }
-    to   { transform: translateX(0);    opacity: 1; }
-  }
-  @keyframes fadeOut {
-    from { opacity: 1; }
-    to   { opacity: 0; transform: translateX(10px); }
-  }
+  .toast.error   { background: rgba(255,51,102,0.15); border: 1px solid rgba(255,51,102,0.4); color: var(--red); }
+  .toast.success { background: rgba(0,255,136,0.12); border: 1px solid rgba(0,255,136,0.35); color: var(--green); }
+  .toast.info    { background: rgba(0,212,255,0.12); border: 1px solid rgba(0,212,255,0.3); color: var(--cyan); }
+  .toast.warn    { background: rgba(255,204,0,0.12); border: 1px solid rgba(255,204,0,0.3); color: var(--yellow); }
+  .toast-icon { font-size: 14px; }
+  @keyframes fadeIn { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
+  @keyframes fadeOut { from { opacity:1; } to { opacity:0; } }
 
   /* ── Modal ── */
   .modal-overlay {
@@ -665,7 +694,7 @@
     position: fixed;
     inset: 0;
     background: rgba(0,0,0,0.7);
-    z-index: 500;
+    z-index: 1000;
     align-items: center;
     justify-content: center;
     backdrop-filter: blur(4px);
@@ -674,190 +703,322 @@
   .modal {
     background: var(--bg2);
     border: 1px solid var(--border2);
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 20px;
-    width: 360px;
-    max-width: 90vw;
-  }
-  .modal-title {
-    font-family: var(--sans);
-    font-size: 14px;
-    font-weight: 700;
-    margin-bottom: 14px;
-    color: #fff;
+    width: 340px;
+    position: relative;
   }
   .modal-close {
-    float: right;
-    background: none;
-    border: none;
-    color: var(--text2);
-    cursor: pointer;
-    font-size: 16px;
-    line-height: 1;
+    position: absolute; top: 12px; right: 12px;
+    background: none; border: none;
+    color: var(--text3); font-size: 16px; cursor: pointer;
   }
+  .modal-title { font-family: var(--sans); font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 12px; }
 
-  /* ── Loader ── */
+  /* ── Empty/Loading ── */
+  .empty-state { padding: 24px; text-align: center; color: var(--text3); }
+  .loading-text { color: var(--text3); font-size: 11px; display: flex; align-items: center; gap: 6px; }
   .spinner {
-    width: 14px; height: 14px;
-    border: 2px solid rgba(255,255,255,0.15);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    display: inline-block;
+    width: 12px; height: 12px; border: 2px solid var(--border2);
+    border-top-color: var(--cyan); border-radius: 50%;
+    animation: spin 0.7s linear infinite; display: inline-block;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .loading-text { color: var(--text3); font-size: 12px; padding: 20px; text-align: center; }
-
-  /* ── Badge ── */
-  .badge {
-    display: inline-block;
-    font-size: 9px;
-    padding: 2px 6px;
+  /* ── Control Tab ── */
+  .ctrl-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .ctrl-title {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text2);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctrl-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+  .ctrl-label { font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
+  .btn-primary {
+    background: rgba(0,212,255,0.12);
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 7px 14px;
     border-radius: 4px;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 6px;
+    transition: background 0.15s;
+  }
+  .btn-primary:hover { background: rgba(0,212,255,0.2); }
+  .btn-danger {
+    background: rgba(255,51,102,0.1);
+    border: 1px solid var(--red);
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 7px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 6px;
+  }
+  .btn-secondary {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .btn-secondary:hover { border-color: var(--text2); }
+
+  /* ── Right most panel tabs ── */
+  .far-right-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+  .far-tab {
+    padding: 8px 14px;
+    font-family: var(--sans);
+    font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.05em;
-  }
-  .badge.trend  { background: rgba(0,230,118,0.15); color: var(--green); }
-  .badge.range  { background: rgba(255,215,64,0.15); color: var(--yellow); }
-  .badge.volatile { background: rgba(255,61,87,0.15); color: var(--red); }
-
-  /* ── Log Filter Buttons ── */
-  .log-filter-btn {
-    background: var(--bg4);
-    border: 1px solid var(--border);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--text3);
-    font-family: var(--mono);
-    font-size: 10px;
-    padding: 4px 10px;
-    border-radius: 4px;
     cursor: pointer;
-    transition: all 0.15s;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    flex: 1;
+    text-align: center;
   }
-  .log-filter-btn.active { border-color: var(--cyan); color: var(--cyan); }
-  .log-filter-btn:hover { border-color: var(--text2); color: var(--text2); }
+  .far-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
 
-  /* ── Log Filter Buttons ── */
-  .log-filter-btn {
-    background: var(--bg4);
-    border: 1px solid var(--border);
-    color: var(--text3);
-    font-family: var(--mono);
-    font-size: 10px;
-    padding: 4px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.15s;
+  .far-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .far-panel.active { display: flex; }
+
+  /* ── Agent info ── */
+  .agent-info-item { }
+  .agent-info-label { font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 2px; }
+  .agent-info-value { font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--text); }
+
+  @media (max-width: 1400px) {
+    .main-layout { grid-template-columns: 1fr 320px 240px; }
   }
-  .log-filter-btn.active { border-color: var(--cyan); color: var(--cyan); }
-  .log-filter-btn:hover { border-color: var(--text2); color: var(--text2); }
-
-  /* ── Responsive ── */
-  @media (max-width: 768px) {
-    .layout { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-    .left-panel { border-right: none; border-bottom: 1px solid var(--border); }
-    .right-panel { max-height: 60vh; }
-    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 1100px) {
+    .main-layout { grid-template-columns: 1fr 280px; }
+    .far-right { display: none; }
+    .stats-bar { grid-template-columns: repeat(4, 1fr); }
   }
 </style>
 </head>
 <body>
 
+<!-- ── Ticker Bar ── -->
+<div class="ticker-bar" id="ticker-bar">
+  <span class="ticker-item" id="t-btc"><span class="ticker-sym">BTC</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
+  <span class="ticker-item" id="t-eth"><span class="ticker-sym">ETH</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
+  <span class="ticker-item" id="t-sol"><span class="ticker-sym">SOL</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
+  <span class="ticker-item" id="t-bnb"><span class="ticker-sym">BNB</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
+  <span class="ticker-item" id="t-xrp"><span class="ticker-sym">XRP</span><span class="ticker-price">–</span><span class="ticker-chg">–</span></span>
+</div>
+
 <!-- ── Header ── -->
 <header>
-  <div class="logo">TRADEMAX<span>PRO</span></div>
-  <div class="header-status">
-    <div class="status-dot">
+  <div>
+    <div class="logo">AI TRADING BOT<small>BINANCE FUTURES · REAL DATA · SIMULATED</small></div>
+  </div>
+
+  <div class="header-meta">
+    <div class="hm-stat">
+      <div class="hm-label">Bakiye</div>
+      <div class="hm-value cyan" id="header-balance">$0.00</div>
+    </div>
+    <div class="hm-stat">
+      <div class="hm-label">PNL</div>
+      <div class="hm-value green" id="header-pnl">+$0.00</div>
+    </div>
+    <div class="hm-stat">
+      <div class="hm-label">Win Rate</div>
+      <div class="hm-value" id="header-wr" style="color:var(--yellow)">–</div>
+    </div>
+    <div class="hm-stat">
+      <div class="hm-label">Drawdown</div>
+      <div class="hm-value red" id="header-dd">–</div>
+    </div>
+    <div class="hm-stat">
+      <div class="hm-label">P.Factor</div>
+      <div class="hm-value" id="header-pf" style="color:var(--purple)">–</div>
+    </div>
+  </div>
+
+  <div class="header-controls">
+    <div class="status-pill">
       <div class="dot offline" id="conn-dot"></div>
       <span id="conn-label">Bağlanıyor...</span>
     </div>
-    <div class="header-balance" id="header-balance">$0.00</div>
+    <button class="btn-start" id="header-agent-btn" onclick="toggleAgent(true)">▶ BAŞLAT</button>
+    <button class="btn-stop" onclick="ctrlCloseAll()">■ DURDUR</button>
   </div>
 </header>
 
-<div class="layout">
+<!-- ── Stats Bar ── -->
+<div class="stats-bar">
+  <div class="stat-item">
+    <div class="stat-lbl">Portföy</div>
+    <div class="stat-val cyan" id="balance-val">$0.00</div>
+    <div class="stat-sub" id="balance-start">Başlangıç: –</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-lbl">Toplam PNL</div>
+    <div class="stat-val green" id="pnl-val">+$0.00</div>
+    <div class="stat-sub" id="pnl-pct">+0.00%</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-lbl">Win Rate</div>
+    <div class="stat-val yellow" id="winrate-val">–</div>
+    <div class="stat-sub" id="winrate-sub">W: – / L: –</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-lbl">Profit Factor</div>
+    <div class="stat-val purple" id="pf-val">–</div>
+    <div class="stat-sub">Kazanç / Kayıp</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-lbl">Drawdown</div>
+    <div class="stat-val red" id="dd-val">–</div>
+    <div class="stat-sub">Zirve düşüş</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-lbl">Açık Poz.</div>
+    <div class="stat-val" id="open-pos-val" style="color:var(--purple)">0</div>
+    <div class="stat-sub" id="max-pos-sub">Maks – pozisyon</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-lbl">İşlem Sayısı</div>
+    <div class="stat-val cyan" id="daily-trades-val">0</div>
+    <div class="stat-sub">Toplam trade</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-lbl">Coin Sayısı</div>
+    <div class="stat-val" id="market-count" style="color:var(--text)">–</div>
+    <div class="stat-sub">Futures çiftleri</div>
+  </div>
+</div>
 
-  <!-- ══════════════════════════════ LEFT PANEL ══ -->
-  <div class="left-panel">
+<!-- ── Main Layout ── -->
+<div class="main-layout">
+
+  <!-- ══ CENTER PANEL ══ -->
+  <div class="center-panel">
     <div class="tabs">
-      <div class="tab active" data-tab="overview">Genel Bakış</div>
+      <div class="tab active" data-tab="overview">Piyasa</div>
       <div class="tab" data-tab="positions">Pozisyonlar</div>
       <div class="tab" data-tab="signals">Sinyaller</div>
       <div class="tab" data-tab="control">⚙ Kontrol</div>
-      <div class="tab" data-tab="logs">Loglar</div>
     </div>
 
-    <!-- OVERVIEW TAB -->
+    <!-- OVERVIEW / PIYASA TAB -->
     <div class="panel-content active" id="tab-overview">
-      <div class="stats-grid">
-        <div class="stat-box">
-          <div class="stat-label">Bakiye</div>
-          <div class="stat-value cyan" id="balance-val">–</div>
-          <div class="stat-sub">USDT</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Toplam PNL</div>
-          <div class="stat-value" id="pnl-val">–</div>
-          <div class="stat-sub" id="pnl-pct">0.00%</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Açık Poz.</div>
-          <div class="stat-value cyan" id="open-pos-val">0</div>
-          <div class="stat-sub">pozisyon</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Günlük İşlem</div>
-          <div class="stat-value" id="daily-trades-val">0</div>
-          <div class="stat-sub" id="daily-pnl-sub">+$0.00</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Bot Sinyali</div>
-          <div class="stat-value" id="signal-count-val">0</div>
-          <div class="stat-sub">toplam sinyal</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Piyasa Rejimi</div>
-          <div class="stat-value" id="regime-val" style="font-size:12px">–</div>
-          <div class="stat-sub" id="atr-sub">ATR: –</div>
-        </div>
+      <!-- Piyasa grid -->
+      <div class="piyasa-header">
+        <input type="text" id="market-search-input" placeholder="Coin ara..." oninput="filterMarket(this.value)" />
+        <button class="sort-btn active" onclick="sortMarket('pct')">% DEĞİŞİM</button>
+        <button class="sort-btn" onclick="sortMarket('vol')">HACİM</button>
+        <button class="sort-btn" onclick="sortMarket('name')">İSİM</button>
       </div>
 
-      <!-- Canlı Pozisyon Özeti -->
-      <div id="overview-positions-wrap" style="display:none">
-        <div class="card" style="border-color:rgba(0,188,212,0.3)">
-          <div class="card-title">
-            📊 Açık Pozisyonlar
-            <button onclick="document.querySelector('.tab[data-tab=positions]').click()" style="background:none;border:none;color:var(--cyan);font-size:10px;cursor:pointer;font-family:var(--mono)">Tümünü gör →</button>
+      <div class="coin-grid" id="market-list">
+        <div class="loading-text"><span class="spinner"></span> Yükleniyor...</div>
+      </div>
+
+      <!-- Chart + Strategy area -->
+      <div class="chart-area">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-sym" id="chart-sym-label">AXS/USDT</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span id="chart-pnl-toggle" style="font-size:10px;color:var(--text3);cursor:pointer">PNL</span>
+              <span style="font-size:10px;color:var(--cyan);cursor:pointer">FİYAT</span>
+            </div>
+            <div class="period-btns">
+              <button class="period-btn active">1m</button>
+              <button class="period-btn">3m</button>
+              <button class="period-btn">5m</button>
+              <button class="period-btn">15m</button>
+              <button class="period-btn">1h</button>
+              <button class="period-btn">4h</button>
+            </div>
           </div>
-          <div id="overview-positions-list"></div>
+          <div class="chart-body">
+            <span id="chart-placeholder" style="text-align:center">
+              <div style="font-size:22px;margin-bottom:6px">📊</div>
+              <div>Grafik verisi yükleniyor...</div>
+              <div style="margin-top:8px;font-size:10px;color:var(--text3)" id="chart-price-footer">Fiyat: –</div>
+            </span>
+          </div>
         </div>
-      </div>
 
-      <!-- Son Sinyal -->
-      <div class="card">
-        <div class="card-title">
-          Son Otomatik Sinyal
-          <span id="last-signal-time" style="color:var(--text3);font-size:10px">–</span>
-        </div>
-        <div id="last-signal-content">
-          <div class="empty-state"><div>📡</div>Sinyal bekleniyor...</div>
-        </div>
-      </div>
-
-      <!-- Risk Bilgisi -->
-      <div class="card">
-        <div class="card-title">Risk Durumu</div>
-        <div id="risk-content">
-          <div class="loading-text"><span class="spinner"></span></div>
+        <div class="strategy-card">
+          <div class="strategy-header">
+            <span class="strategy-title">Strateji Öğrenimi</span>
+            <span class="live-badge">CANLI</span>
+            <span class="best-badge" id="best-strategy-badge">EN İYİ: –</span>
+          </div>
+          <div class="strategy-list" id="strategy-list">
+            <div class="strategy-row">
+              <span class="strat-name">Mean Reversion <span class="live-badge" style="font-size:8px">EN İYİ</span></span>
+              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-mr" style="width:38%;background:var(--cyan)"></div></div></div>
+              <span class="strat-wr" id="sw-mr">38.1% WR</span>
+              <span class="strat-pf" id="spf-mr">1.66</span>
+            </div>
+            <div class="strategy-row">
+              <span class="strat-name">Breakout</span>
+              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-bo" style="width:33%;background:var(--green)"></div></div></div>
+              <span class="strat-wr" id="sw-bo">33.3% WR</span>
+              <span class="strat-pf" id="spf-bo">1.42</span>
+            </div>
+            <div class="strategy-row">
+              <span class="strat-name">Trend Following</span>
+              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-tf" style="width:30%;background:var(--yellow)"></div></div></div>
+              <span class="strat-wr" id="sw-tf">30.4% WR</span>
+              <span class="strat-pf" id="spf-tf">1.30</span>
+            </div>
+            <div class="strategy-row">
+              <span class="strat-name">Scalping</span>
+              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-sc" style="width:15%;background:var(--orange)"></div></div></div>
+              <span class="strat-wr" id="sw-sc">15.4% WR</span>
+              <span class="strat-pf" id="spf-sc">0.70</span>
+            </div>
+            <div class="strategy-row">
+              <span class="strat-name">VWAP Bounce</span>
+              <div class="strat-bar-wrap"><div class="strat-bar-bg"><div class="strat-bar-fill" id="sb-vw" style="width:11%;background:var(--red)"></div></div></div>
+              <span class="strat-wr" id="sw-vw">11.1% WR</span>
+              <span class="strat-pf" id="spf-vw">0.70</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- POSITIONS TAB -->
     <div class="panel-content" id="tab-positions">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <span style="color:var(--text3);font-size:10px;letter-spacing:0.1em;text-transform:uppercase">Açık Pozisyonlar</span>
-        <div style="display:flex;gap:6px;align-items:center">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span style="color:var(--text3);font-size:10px;letter-spacing:0.12em;text-transform:uppercase">Açık Pozisyonlar</span>
+        <div style="display:flex;gap:8px;align-items:center">
           <span id="pos-total-pnl" style="font-size:12px;font-weight:600;color:var(--text3)">PNL: –</span>
           <button class="btn-secondary" onclick="loadPositions()">↻ Yenile</button>
         </div>
@@ -869,32 +1030,30 @@
 
     <!-- SIGNALS TAB -->
     <div class="panel-content" id="tab-signals">
-      <!-- Ajan Durum Kartı -->
-      <div class="card" id="agent-activity-card" style="margin-bottom:10px;border-color:rgba(0,188,212,0.2)">
-        <div class="card-title" style="color:var(--cyan)">🤖 Ajan Aktivitesi</div>
+      <div class="ctrl-card" id="agent-activity-card">
+        <div class="ctrl-title">🤖 Ajan Aktivitesi</div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
-          <div style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
-            <div style="font-size:9px;color:var(--text3);margin-bottom:3px;text-transform:uppercase">Durum</div>
-            <div id="sig-agent-status" style="font-size:13px;font-weight:600;color:var(--text3)">–</div>
+          <div class="agent-cell">
+            <div class="agent-cell-label">Durum</div>
+            <div class="agent-cell-val" id="sig-agent-status" style="color:var(--text3)">–</div>
           </div>
-          <div style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
-            <div style="font-size:9px;color:var(--text3);margin-bottom:3px;text-transform:uppercase">İşlem Sayısı</div>
-            <div id="sig-trade-count" style="font-size:13px;font-weight:600;color:var(--cyan)">0</div>
+          <div class="agent-cell">
+            <div class="agent-cell-label">İşlem Sayısı</div>
+            <div class="agent-cell-val cyan" id="sig-trade-count">0</div>
           </div>
-          <div style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
-            <div style="font-size:9px;color:var(--text3);margin-bottom:3px;text-transform:uppercase">RL Epsilon</div>
-            <div id="sig-epsilon" style="font-size:13px;font-weight:600;color:var(--yellow)">–</div>
+          <div class="agent-cell">
+            <div class="agent-cell-label">RL Epsilon</div>
+            <div class="agent-cell-val yellow" id="sig-epsilon">–</div>
           </div>
         </div>
-        <!-- Sonraki tarama -->
-        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:8px 12px;display:flex;justify-content:space-between">
           <span style="font-size:11px;color:var(--text2)">Taranan semboller:</span>
           <span id="sig-symbols" style="font-size:11px;color:var(--cyan)">BTC, ETH, SOL, BNB, XRP</span>
         </div>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <span style="color:var(--text3);font-size:10px;letter-spacing:0.1em;text-transform:uppercase">Son Sinyaller</span>
+        <span style="color:var(--text3);font-size:10px;letter-spacing:0.12em;text-transform:uppercase">Son Sinyaller</span>
         <button class="btn-secondary" onclick="refreshStatus()">↻ Yenile</button>
       </div>
       <div id="signals-content">
@@ -904,213 +1063,123 @@
 
     <!-- CONTROL TAB -->
     <div class="panel-content" id="tab-control">
-
-      <!-- İşlem Testi -->
-      <div class="card">
-        <div class="card-title">🧪 İşlem Testi
-          <span style="color:var(--yellow);font-size:9px">TESTNET</span>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-          <div class="form-group">
-            <div class="form-label">Sembol</div>
-            <input type="text" id="test-symbol" value="BTCUSDT" placeholder="BTCUSDT" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" />
-          </div>
-          <div class="form-group">
-            <div class="form-label">Yön</div>
-            <select id="test-side">
-              <option value="BUY">LONG ▲</option>
-              <option value="SELL">SHORT ▼</option>
-            </select>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
-          <div class="form-group">
-            <div class="form-label">Miktar (USDT)</div>
-            <input type="number" id="test-qty" value="100" min="5" step="10" />
-          </div>
-          <div class="form-group">
-            <div class="form-label">Kaldıraç</div>
-            <input type="number" id="test-lev" value="3" min="1" max="20" />
-          </div>
-          <div class="form-group">
-            <div class="form-label">Emir Tipi</div>
-            <select id="test-order-type">
-              <option value="MARKET">Market</option>
-              <option value="LIMIT">Limit</option>
-            </select>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-          <div class="form-group">
-            <div class="form-label">Stop Loss %</div>
-            <input type="number" id="test-sl" value="1.5" min="0.1" max="10" step="0.1" />
-          </div>
-          <div class="form-group">
-            <div class="form-label">Take Profit %</div>
-            <input type="number" id="test-tp" value="3.0" min="0.1" max="20" step="0.1" />
-          </div>
-        </div>
-        <div id="test-preview" style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.8">
-          Parametreleri doldurun...
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <button class="btn-long" id="ctrl-btn-long" onclick="ctrlOpenTrade('BUY')" style="font-size:12px;padding:11px">
-            ▲ LONG AÇ
-          </button>
-          <button class="btn-short" id="ctrl-btn-short" onclick="ctrlOpenTrade('SELL')" style="font-size:12px;padding:11px">
-            ▼ SHORT AÇ
-          </button>
-        </div>
-        <button onclick="ctrlCloseAll()" style="width:100%;margin-top:8px;padding:10px;background:rgba(255,61,87,0.08);border:1px solid rgba(255,61,87,0.25);color:var(--red);font-family:var(--mono);font-size:11px;border-radius:6px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.background='rgba(255,61,87,0.18)'" onmouseout="this.style.background='rgba(255,61,87,0.08)'">
-          🛑 Tüm Pozisyonları Kapat
-        </button>
-        <div id="test-result" style="margin-top:10px;display:none"></div>
-      </div>
-
-      <!-- Ajan Kontrol Merkezi -->
-      <div class="card">
-        <div class="card-title">🤖 Otomatik Ajan Kontrol Merkezi</div>
-
-        <!-- Ajan ON/OFF + Durum -->
-        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px">
+      <div class="ctrl-card">
+        <div class="ctrl-title">🧪 İşlem Testi</div>
+        <div class="ctrl-row">
           <div>
-            <div style="font-size:12px;color:#fff;font-weight:600">Ajan Durumu</div>
-            <div id="ctrl-agent-status-text" style="font-size:11px;color:var(--text3);margin-top:2px">Kontrol ediliyor...</div>
+            <div class="ctrl-label">Sembol</div>
+            <input type="text" id="test-symbol" value="BTCUSDT" oninput="ctrlUpdateTestPreview()" />
           </div>
-          <label class="toggle-switch" style="width:46px;height:26px">
-            <input type="checkbox" id="ctrl-agent-toggle" onchange="ctrlToggleAgent(this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <!-- Ajan Parametreleri -->
-        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin-bottom:8px">Ajan Parametreleri</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-          <div class="form-group">
-            <div class="form-label">Tarama Aralığı (dk)</div>
-            <input type="number" id="ctrl-scan-interval" value="15" min="1" max="60" step="1" oninput="ctrlUpdateAgentPreview()" />
-          </div>
-          <div class="form-group">
-            <div class="form-label">RL Epsilon (0-1)</div>
-            <input type="number" id="ctrl-epsilon" value="0.15" min="0.01" max="1" step="0.01" oninput="ctrlUpdateAgentPreview()" />
-          </div>
-          <div class="form-group">
-            <div class="form-label">Min Sinyal Skoru</div>
-            <input type="number" id="ctrl-min-score" value="0.3" min="0.1" max="1" step="0.05" oninput="ctrlUpdateAgentPreview()" />
-          </div>
-          <div class="form-group">
-            <div class="form-label">Max Pozisyon</div>
-            <input type="number" id="ctrl-max-pos" value="3" min="1" max="10" step="1" oninput="ctrlUpdateAgentPreview()" />
+          <div>
+            <div class="ctrl-label">Yön</div>
+            <select id="test-side" onchange="ctrlUpdateTestPreview()">
+              <option value="BUY">LONG</option>
+              <option value="SELL">SHORT</option>
+            </select>
           </div>
         </div>
-
-        <!-- Risk Parametreleri -->
-        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin-bottom:8px">Risk Parametreleri</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-          <div class="form-group">
-            <div class="form-label">Günlük Max Kayıp %</div>
-            <input type="number" id="ctrl-daily-loss" value="2.0" min="0.5" max="20" step="0.5" oninput="ctrlUpdateAgentPreview()" />
+        <div class="ctrl-row">
+          <div>
+            <div class="ctrl-label">Miktar (USDT)</div>
+            <input type="number" id="test-qty" value="100" oninput="ctrlUpdateTestPreview()" />
           </div>
-          <div class="form-group">
-            <div class="form-label">Max Drawdown %</div>
-            <input type="number" id="ctrl-max-drawdown" value="5.0" min="1" max="30" step="0.5" oninput="ctrlUpdateAgentPreview()" />
-          </div>
-          <div class="form-group">
-            <div class="form-label">Risk/İşlem %</div>
-            <input type="number" id="ctrl-risk-per-trade" value="1.0" min="0.1" max="10" step="0.1" oninput="ctrlUpdateAgentPreview()" />
-          </div>
-          <div class="form-group">
-            <div class="form-label">Ard. Max Kayıp</div>
-            <input type="number" id="ctrl-consec-loss" value="5" min="1" max="20" step="1" oninput="ctrlUpdateAgentPreview()" />
+          <div>
+            <div class="ctrl-label">Kaldıraç</div>
+            <input type="number" id="test-lev" value="3" min="1" max="20" oninput="ctrlUpdateTestPreview()" />
           </div>
         </div>
-
-        <!-- Önizleme -->
-        <div id="ctrl-agent-preview" style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.8">
-          –
+        <div class="ctrl-row">
+          <div>
+            <div class="ctrl-label">SL %</div>
+            <input type="number" id="test-sl" value="1.5" step="0.1" oninput="ctrlUpdateTestPreview()" />
+          </div>
+          <div>
+            <div class="ctrl-label">TP %</div>
+            <input type="number" id="test-tp" value="3.0" step="0.1" oninput="ctrlUpdateTestPreview()" />
+          </div>
         </div>
-
-        <button onclick="ctrlApplyAgentSettings()" style="width:100%;padding:11px;background:rgba(0,188,212,0.12);border:1px solid rgba(0,188,212,0.3);color:var(--cyan);font-family:var(--sans);font-size:13px;font-weight:700;border-radius:6px;cursor:pointer;letter-spacing:0.05em;transition:all 0.15s" onmouseover="this.style.background='rgba(0,188,212,0.22)'" onmouseout="this.style.background='rgba(0,188,212,0.12)'">
-          💾 Ayarları Uygula
-        </button>
+        <div class="ctrl-row">
+          <div>
+            <div class="ctrl-label">Emir Tipi</div>
+            <select id="test-order-type" onchange="ctrlUpdateTestPreview()">
+              <option value="MARKET">MARKET</option>
+              <option value="LIMIT">LIMIT</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <div id="test-preview" style="font-size:10px;color:var(--text3)">–</div>
+          </div>
+        </div>
+        <div id="test-result" style="display:none;margin-top:8px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+          <button class="btn-long" id="ctrl-btn-long" onclick="ctrlOpenTrade('BUY')" style="font-size:12px;padding:9px">▲ LONG</button>
+          <button class="btn-short" id="ctrl-btn-short" onclick="ctrlOpenTrade('SELL')" style="font-size:12px;padding:9px">▼ SHORT</button>
+        </div>
+        <button class="btn-danger" onclick="ctrlCloseAll()" style="margin-top:6px">🛑 Tüm Pozisyonları Kapat</button>
       </div>
 
-      <!-- Kill Switch -->
-      <div class="card" style="border-color:rgba(255,61,87,0.3)">
-        <div class="card-title" style="color:var(--red)">⛔ Kill Switch</div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:12px;line-height:1.6">
-          Kill switch aktifleşince bot tüm işlemleri durdurur ve yeni pozisyon açmaz. Manuel olarak devre dışı bırakılabilir.
+      <div class="ctrl-card">
+        <div class="ctrl-title">⚙️ Ajan Ayarları</div>
+        <div class="ctrl-row">
+          <div>
+            <div class="ctrl-label">Günlük Max. Kayıp %</div>
+            <input type="number" id="ctrl-daily-loss" value="3" step="0.5" onchange="ctrlUpdateAgentPreview()" />
+          </div>
+          <div>
+            <div class="ctrl-label">Max Drawdown %</div>
+            <input type="number" id="ctrl-drawdown" value="15" step="1" onchange="ctrlUpdateAgentPreview()" />
+          </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <button onclick="ctrlKillSwitch(true)" style="padding:10px;background:rgba(255,61,87,0.12);border:1px solid rgba(255,61,87,0.35);color:var(--red);font-family:var(--mono);font-size:11px;border-radius:6px;cursor:pointer;font-weight:700;transition:all 0.15s" onmouseover="this.style.background='rgba(255,61,87,0.25)'" onmouseout="this.style.background='rgba(255,61,87,0.12)'">
-            🔴 Aktifleştir
-          </button>
-          <button onclick="ctrlKillSwitch(false)" style="padding:10px;background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.25);color:var(--green);font-family:var(--mono);font-size:11px;border-radius:6px;cursor:pointer;font-weight:700;transition:all 0.15s" onmouseover="this.style.background='rgba(0,230,118,0.18)'" onmouseout="this.style.background='rgba(0,230,118,0.08)'">
-            🟢 Devre Dışı
-          </button>
+        <div class="ctrl-row">
+          <div>
+            <div class="ctrl-label">Risk per Trade %</div>
+            <input type="number" id="ctrl-risk-per-trade" value="1" step="0.1" onchange="ctrlUpdateAgentPreview()" />
+          </div>
+          <div>
+            <div class="ctrl-label">Max Pozisyon</div>
+            <input type="number" id="ctrl-max-pos" value="5" min="1" max="20" onchange="ctrlUpdateAgentPreview()" />
+          </div>
         </div>
-        <div id="kill-switch-status" style="margin-top:10px;text-align:center;font-size:11px;color:var(--text3)">–</div>
-      </div>
+        <div class="ctrl-row">
+          <div>
+            <div class="ctrl-label">Tarama Aralığı (dk)</div>
+            <input type="number" id="ctrl-scan-interval" value="15" min="1" max="60" onchange="ctrlUpdateAgentPreview()" />
+          </div>
+          <div>
+            <div class="ctrl-label">Min. Sinyal Skoru</div>
+            <input type="number" id="ctrl-min-score" value="0.15" step="0.05" onchange="ctrlUpdateAgentPreview()" />
+          </div>
+        </div>
+        <div class="ctrl-row">
+          <div>
+            <div class="ctrl-label">Kill-switch (ard. kayıp)</div>
+            <input type="number" id="ctrl-kill-switch" value="5" min="1" onchange="ctrlUpdateAgentPreview()" />
+          </div>
+          <div>
+            <div class="ctrl-label">RL Epsilon</div>
+            <input type="number" id="ctrl-rl-eps" value="0.15" step="0.05" onchange="ctrlUpdateAgentPreview()" />
+          </div>
+        </div>
+        <div id="ctrl-agent-preview" style="font-size:10px;color:var(--text3);margin:8px 0;padding:8px;background:var(--bg3);border-radius:4px">–</div>
+        <button class="btn-primary" id="ctrl-btn-save-agent" onclick="ctrlSaveAgent()">💾 Ayarları Uygula</button>
 
-      <!-- TradingView Webhook -->
-      <div class="card" style="border-color:rgba(0,188,212,0.2)">
-        <div class="card-title" style="color:var(--cyan)">📡 TradingView Webhook</div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.7">
-          TradingView alert'lerini bota bağlamak için aşağıdaki URL'yi kullanın:
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:11px;color:var(--text2)">Otomatik Ajan</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ctrl-agent-toggle" onchange="toggleAgent(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div id="ctrl-agent-status-text" style="font-size:11px;color:var(--text3)">⏹ Ajan durduruldu</div>
         </div>
-        <div style="background:#080a0d;border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:11px;margin-bottom:10px;word-break:break-all">
-          <span style="color:var(--text3)">POST </span>
-          <span id="webhook-url" style="color:var(--cyan)">https://trademaxpro-production.up.railway.app/webhook/tradingview</span>
-          <button onclick="copyWebhookUrl()" style="float:right;background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px" title="Kopyala">📋</button>
-        </div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.08em">Alert Mesaj Formatı (JSON):</div>
-        <div style="background:#080a0d;border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--green);line-height:1.8;position:relative">
-<pre style="margin:0;font-family:var(--mono);font-size:10px;color:var(--text2)">{
-  <span style="color:var(--cyan)">"symbol"</span>: <span style="color:var(--yellow)">"BTCUSDT"</span>,
-  <span style="color:var(--cyan)">"side"</span>: <span style="color:var(--yellow)">"BUY"</span>,
-  <span style="color:var(--cyan)">"timeframe"</span>: <span style="color:var(--yellow)">"1h"</span>,
-  <span style="color:var(--cyan)">"strategy_tag"</span>: <span style="color:var(--yellow)">"ema_cross"</span>,
-  <span style="color:var(--cyan)">"secret"</span>: <span style="color:var(--red)">"tv-secret"</span>
-}</pre>
-          <button onclick="copyWebhookJson()" style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px" title="Kopyala">📋</button>
-        </div>
-        <div style="margin-top:10px;font-size:10px;color:var(--text3);line-height:1.8">
-          ⚙️ <code style="color:var(--yellow)">WEBHOOK_SECRET</code> değişkenini Railway Variables'dan değiştirin<br>
-          📌 <code style="color:var(--cyan)">"side"</code>: <code>"BUY"</code> (long) veya <code>"SELL"</code> (short)
-        </div>
-      </div>
-
-    </div>
-
-    <!-- LOGS TAB -->
-    <div class="panel-content" id="tab-logs">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="color:var(--text3);font-size:10px;letter-spacing:0.1em;text-transform:uppercase">Sistem Logları</span>
-        <div style="display:flex;gap:6px;align-items:center">
-          <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text3);cursor:pointer">
-            <input type="checkbox" id="log-auto-refresh" checked style="width:12px;height:12px"> Otomatik
-          </label>
-          <button class="btn-secondary" onclick="fetchLogs()">↻ Yenile</button>
-          <button class="btn-secondary" onclick="clearLogs()">Temizle</button>
-        </div>
-      </div>
-      <!-- Filtre -->
-      <div style="display:flex;gap:6px;margin-bottom:8px">
-        <button class="log-filter-btn active" data-level="all" onclick="setLogFilter('all',this)">Tümü</button>
-        <button class="log-filter-btn" data-level="error" onclick="setLogFilter('error',this)">Hata</button>
-        <button class="log-filter-btn" data-level="warn" onclick="setLogFilter('warn',this)">Uyarı</button>
-        <button class="log-filter-btn" data-level="ok" onclick="setLogFilter('ok',this)">Başarı</button>
-        <button class="log-filter-btn" data-level="agent" onclick="setLogFilter('agent',this)">🤖 Ajan</button>
-      </div>
-      <div class="log-area" id="log-area">
-        <div class="log-line info"><span class="log-time">--:--:--</span>Sistem başlatılıyor...</div>
       </div>
     </div>
+
   </div>
 
-  <!-- ══════════════════════════════ RIGHT PANEL ══ -->
+  <!-- ══ RIGHT PANEL (Trade Form + Agent) ══ -->
   <div class="right-panel">
-
     <!-- Trade Form -->
     <div class="trade-form">
       <div class="form-title">İşlem Aç</div>
@@ -1158,63 +1227,122 @@
         </div>
       </div>
 
-      <!-- P&L preview -->
-      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
-        <span id="pnl-preview" style="color:var(--green);font-size:13px;font-weight:600">+$0.00</span>
+      <div class="pnl-preview-row">
+        <span class="pnl-preview-label">max TP</span>
+        <span id="pnl-preview">+$0.00</span>
       </div>
 
-      <button class="btn-long" id="btn-long" onclick="handleLong()">
-        ▲ LONG İŞLEM AÇ
-      </button>
-      <button class="btn-short" id="btn-short" onclick="handleShort()">
-        ▼ SHORT İŞLEM AÇ
-      </button>
+      <button class="btn-long" id="btn-long" onclick="handleLong()">▲ LONG İŞLEM AÇ</button>
+      <button class="btn-short" id="btn-short" onclick="handleShort()">▼ SHORT İŞLEM AÇ</button>
     </div>
 
-    <!-- Agent Toggle -->
+    <!-- Agent Section -->
     <div class="agent-section">
       <div class="agent-toggle">
-        <span style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text3)">Otomatik Ajan</span>
+        <span class="agent-label">Otomatik Ajan</span>
         <label class="toggle-switch">
           <input type="checkbox" id="agent-toggle" onchange="toggleAgent(this.checked)">
           <span class="toggle-slider"></span>
         </label>
       </div>
-      <div class="agent-info">
-        <div class="agent-info-item">
-          <div class="agent-info-label">Durum</div>
-          <div class="agent-info-value" id="agent-status-val" style="color:var(--text3)">Pasif</div>
+      <div class="agent-grid">
+        <div class="agent-cell">
+          <div class="agent-cell-label">Durum</div>
+          <div class="agent-cell-val" id="agent-status-val" style="color:var(--text3)">Pasif</div>
         </div>
-        <div class="agent-info-item">
-          <div class="agent-info-label">İşlem Sayısı</div>
-          <div class="agent-info-value" id="agent-trade-count">0</div>
+        <div class="agent-cell">
+          <div class="agent-cell-label">İşlem Sayısı</div>
+          <div class="agent-cell-val cyan" id="agent-trade-count">0</div>
         </div>
-        <div class="agent-info-item">
-          <div class="agent-info-label">Tarama</div>
-          <div class="agent-info-value" id="agent-scan-interval">15 dk</div>
+        <div class="agent-cell">
+          <div class="agent-cell-label">Tarama</div>
+          <div class="agent-cell-val" id="agent-scan-interval">15 dk</div>
         </div>
-        <div class="agent-info-item">
-          <div class="agent-info-label">RL Epsilon</div>
-          <div class="agent-info-value" id="agent-epsilon">–</div>
+        <div class="agent-cell">
+          <div class="agent-cell-label">RL Epsilon</div>
+          <div class="agent-cell-val yellow" id="agent-epsilon">–</div>
         </div>
       </div>
     </div>
 
-    <!-- Futures Market List -->
+    <!-- Futures Market List (compact) -->
     <div class="market-section">
-      <div class="market-header">
-        <span class="market-title">Futures Piyasaları</span>
-        <span class="market-count" id="market-count">– çift</span>
+      <div class="section-title">
+        Futures Piyasaları
+        <span id="market-count2" style="color:var(--cyan);font-family:var(--sans);font-size:13px;font-weight:700">–</span>
       </div>
       <div class="market-search">
-        <input type="text" id="market-search-input" placeholder="Sembol ara... (BTC, ETH...)" oninput="filterMarket(this.value)" />
+        <input type="text" placeholder="Sembol ara... (BTC, ETH...)" oninput="filterMarket(this.value)" />
       </div>
-      <div class="market-list" id="market-list">
+      <div class="market-list" id="market-list-right">
         <div class="loading-text"><span class="spinner"></span></div>
       </div>
     </div>
-
   </div>
+
+  <!-- ══ FAR RIGHT: Logs + Signals ══ -->
+  <div class="far-right">
+    <div class="far-right-tabs">
+      <div class="far-tab active" onclick="switchFarTab('logs', this)">Loglar</div>
+      <div class="far-tab" onclick="switchFarTab('overview-signals', this)">Sinyaller</div>
+    </div>
+
+    <!-- Logs Panel -->
+    <div class="far-panel active" id="far-panel-logs">
+      <div class="log-toolbar">
+        <button class="log-filter-btn active" data-level="all" onclick="setLogFilter('all',this)">Tümü</button>
+        <button class="log-filter-btn" data-level="error" onclick="setLogFilter('error',this)">Hata</button>
+        <button class="log-filter-btn" data-level="warn" onclick="setLogFilter('warn',this)">Uyarı</button>
+        <button class="log-filter-btn" data-level="ok" onclick="setLogFilter('ok',this)">Başarı</button>
+        <button class="log-filter-btn" data-level="agent" onclick="setLogFilter('agent',this)">🤖 Ajan</button>
+        <button class="btn-secondary" onclick="fetchLogs()" style="margin-left:auto;font-size:10px;padding:3px 8px">↻</button>
+        <button class="btn-secondary" onclick="clearLogs()" style="font-size:10px;padding:3px 8px">🗑</button>
+        <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="log-auto-refresh" checked style="width:11px;height:11px"> Otomatik
+        </label>
+      </div>
+      <div class="log-area" id="log-area">
+        <div class="log-line info"><span class="log-time">--:--:--</span>Sistem başlatılıyor...</div>
+      </div>
+    </div>
+
+    <!-- Signals Overview Panel -->
+    <div class="far-panel" id="far-panel-overview-signals">
+      <!-- Overview stats mini -->
+      <div style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg2)">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+          <div class="agent-cell">
+            <div class="agent-cell-label">Piyasa Rejimi</div>
+            <div class="agent-cell-val" id="regime-val" style="color:var(--green)">–</div>
+          </div>
+          <div class="agent-cell">
+            <div class="agent-cell-label">ATR</div>
+            <div class="agent-cell-val" id="atr-sub" style="font-size:12px">–</div>
+          </div>
+          <div class="agent-cell">
+            <div class="agent-cell-label">Margin Kull.</div>
+            <div class="agent-cell-val" id="margin-val2">–</div>
+          </div>
+          <div class="agent-cell">
+            <div class="agent-cell-label">Günlük İşlem</div>
+            <div class="agent-cell-val cyan" id="daily-trades-val2">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding:10px 12px;overflow-y:auto;flex:1">
+        <div style="font-size:10px;color:var(--text3);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px">Son Otomatik Sinyal</div>
+        <div id="last-signal-content">
+          <div class="empty-state"><div>📡</div>Sinyal bekleniyor...</div>
+        </div>
+        <div style="font-size:10px;color:var(--text3);letter-spacing:0.12em;text-transform:uppercase;margin:12px 0 8px">Risk Durumu</div>
+        <div id="risk-content"></div>
+        <div style="font-size:10px;color:var(--text3);letter-spacing:0.12em;text-transform:uppercase;margin:12px 0 8px">Açık Pozisyonlar (Özet)</div>
+        <div id="overview-positions-list"></div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- ── Market Select Modal ── -->
@@ -1331,6 +1459,7 @@ let state = {
   positions: [],
   signalHistory: [],
   agentRunning: false,
+  marketPrices: {},
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -1367,17 +1496,29 @@ async function refreshStatus() {
     document.getElementById("header-balance").textContent = "$" + parseFloat(bal).toFixed(2);
 
     // Stats
-    document.getElementById("balance-val").textContent = fmt(bal);
+    document.getElementById("balance-val").textContent = "$" + parseFloat(bal).toFixed(2);
     const pnl = data.unrealized_pnl ?? data.total_pnl ?? 0;
     const pnlEl = document.getElementById("pnl-val");
     pnlEl.textContent = fmtUSD(pnl);
-    pnlEl.className = "stat-value " + colorClass(pnl);
+    pnlEl.className = "stat-val " + colorClass(pnl);
 
     const pnlPct = bal > 0 ? (pnl / bal * 100) : 0;
     document.getElementById("pnl-pct").textContent = (pnlPct >= 0 ? "+" : "") + pnlPct.toFixed(2) + "%";
 
     document.getElementById("open-pos-val").textContent = data.open_positions ?? 0;
     document.getElementById("daily-trades-val").textContent = data.daily_trades ?? 0;
+
+    // New stats elements
+    const dt2 = document.getElementById("daily-trades-val2");
+    if (dt2) dt2.textContent = data.daily_trades ?? 0;
+    const risk = data.risk ?? {};
+    const marginEl = document.getElementById("margin-val2");
+    if (marginEl) marginEl.textContent = (parseFloat(risk.margin_usage_pct || data.margin_usage_pct || 0)).toFixed(1) + "%";
+    const maxPosEl = document.getElementById("max-pos-sub");
+    if (maxPosEl) maxPosEl.textContent = "Maks " + (risk.max_positions || 5) + " pozisyon";
+
+    // Update header stats
+    updateHeaderStats(data);
 
     const dailyPnl = data.daily_pnl ?? 0;
     const dailySub = document.getElementById("daily-pnl-sub");
@@ -1426,7 +1567,7 @@ async function refreshStatus() {
     const regime = data.regime ?? data.market_regime ?? "–";
     const regimeEl = document.getElementById("regime-val");
     regimeEl.textContent = regime;
-    regimeEl.className = "stat-value";
+    regimeEl.className = "stat-val";
     if (regime === "trend")    regimeEl.style.color = "var(--green)";
     else if (regime === "range") regimeEl.style.color = "var(--yellow)";
     else regimeEl.style.color = "var(--text)";
@@ -1560,15 +1701,16 @@ async function refreshOverviewPositions() {
     const positions = (result.ok ? result.positions : null) || [];
     state.positions = positions;
 
-    const wrap = document.getElementById("overview-positions-wrap");
     const list = document.getElementById("overview-positions-list");
+    const wrap = document.getElementById("overview-positions-wrap");
     document.getElementById("open-pos-val").textContent = positions.length;
 
     if (!positions.length) {
-      wrap.style.display = "none";
+      if (wrap) wrap.style.display = "none";
+      if (list) list.innerHTML = '<div style="color:var(--text3);font-size:11px;padding:8px 0">Açık pozisyon yok</div>';
       return;
     }
-    wrap.style.display = "block";
+    if (wrap) wrap.style.display = "block";
 
     list.innerHTML = positions.map(pos => {
       const pnl    = parseFloat(pos.unrealized_pnl ?? 0);
@@ -1708,8 +1850,13 @@ async function closePosition(symbol, side) {
   });
   if (result.ok) {
     showToast(`✅ ${symbol} pozisyonu kapatıldı`, "success");
+    addLog(`Pozisyon kapatıldı: ${symbol} ${side}`, "ok");
     await loadPositions();
     await refreshStatus();
+  } else {
+    const errMsg = result.reason || result.error || "Bilinmeyen hata";
+    showToast(`❌ Kapatma hatası: ${errMsg}`, "error");
+    addLog(`Kapatma hatası [${symbol}]: ${errMsg}`, "error");
   }
 }
 
@@ -1723,38 +1870,65 @@ async function loadMarketList() {
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     state.allSymbols = data.symbols || data || [];
-    document.getElementById("market-count").textContent = state.allSymbols.length + " çift";
+    const cnt = state.allSymbols.length + " çift";
+    const el1 = document.getElementById("market-count");
+    const el2 = document.getElementById("market-count2");
+    if (el1) el1.textContent = cnt;
+    if (el2) el2.textContent = state.allSymbols.length;
     renderMarketList(state.allSymbols);
     renderModalList(state.allSymbols);
   } catch (err) {
-    // Fallback: yaygın semboller
     const fallback = [
       "BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT",
       "ADAUSDT","AVAXUSDT","LINKUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
       "ATOMUSDT","UNIUSDT","NEARUSDT","APTUSDT","ARBUSDT","OPUSDT",
     ];
     state.allSymbols = fallback;
-    document.getElementById("market-count").textContent = fallback.length + " çift";
+    const el1 = document.getElementById("market-count");
+    const el2 = document.getElementById("market-count2");
+    if (el1) el1.textContent = fallback.length + " çift";
+    if (el2) el2.textContent = fallback.length;
     renderMarketList(fallback);
     renderModalList(fallback);
   }
 }
 
 function renderMarketList(symbols) {
+  // Center panel - coin grid
   const el = document.getElementById("market-list");
-  if (!symbols.length) {
-    el.innerHTML = '<div class="loading-text">Sembol bulunamadı</div>';
-    return;
+  if (el) {
+    if (!symbols.length) {
+      el.innerHTML = '<div class="loading-text">Sembol bulunamadı</div>';
+    } else {
+      el.innerHTML = symbols.slice(0, 99).map(sym => {
+        const base = String(sym).replace("USDT","").replace("BUSD","");
+        const selected = sym === state.symbol ? "selected" : "";
+        const chgData = state.marketPrices && state.marketPrices[sym];
+        const chg = chgData ? chgData.chg : null;
+        const price = chgData ? chgData.price : null;
+        const chgClass = chg === null ? "" : (chg >= 0 ? "pos" : "neg");
+        const chgStr = chg === null ? "" : (chg >= 0 ? "+" : "") + chg.toFixed(2) + "%";
+        return `
+          <div class="coin-cell ${selected}" onclick="selectSymbol('${sym}')">
+            <div class="coin-sym">${base}</div>
+            <div class="coin-price">${price ? fmtPrice(price) : ""}</div>
+            <div class="coin-chg ${chgClass}">${chgStr}</div>
+          </div>`;
+      }).join("");
+    }
   }
-  el.innerHTML = symbols.slice(0, 100).map(sym => {
-    const base = String(sym).replace("USDT", "").replace("BUSD", "");
-    const selected = sym === state.symbol ? "selected" : "";
-    return `
-      <div class="market-item ${selected}" onclick="selectSymbol('${sym}')">
-        <div class="market-sym">${base}<span>/USDT</span></div>
-        <button class="market-add-btn" onclick="event.stopPropagation();selectSymbol('${sym}')">+ İşlem</button>
-      </div>`;
-  }).join("");
+  // Right panel - market list
+  const el2 = document.getElementById("market-list-right");
+  if (el2) {
+    el2.innerHTML = symbols.slice(0, 100).map(sym => {
+      const base = String(sym).replace("USDT","").replace("BUSD","");
+      return `
+        <div class="market-item" onclick="selectSymbol('${sym}')">
+          <div class="market-sym">${base}<span style="color:var(--text3)">/USDT</span></div>
+          <button class="market-add-btn" onclick="event.stopPropagation();selectSymbol('${sym}')">+ İşlem</button>
+        </div>`;
+    }).join("");
+  }
 }
 
 function renderModalList(symbols) {
@@ -2179,6 +2353,57 @@ function clearLogs() {
 //  INIT & POLLING
 // ═══════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════
+//  NEW UI HELPERS
+// ═══════════════════════════════════════════════════════════
+
+function switchFarTab(tab, el) {
+  document.querySelectorAll(".far-tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".far-panel").forEach(p => p.classList.remove("active"));
+  el.classList.add("active");
+  const panel = document.getElementById("far-panel-" + tab);
+  if (panel) panel.classList.add("active");
+}
+
+let _sortMode = "pct";
+function sortMarket(mode) {
+  _sortMode = mode;
+  document.querySelectorAll(".sort-btn").forEach(b => {
+    b.classList.toggle("active", b.getAttribute("onclick").includes(mode));
+  });
+  // Re-render with current list
+  renderMarketList(state.allSymbols);
+}
+
+function filterMarket(q) {
+  const filtered = state.allSymbols.filter(s => s.toLowerCase().includes(q.toLowerCase()));
+  renderMarketList(filtered);
+}
+
+// Update header stats from overview data
+function updateHeaderStats(data) {
+  const bal = parseFloat(data.balance || data.wallet_balance || 0);
+  const pnl = parseFloat(data.unrealized_pnl || 0);
+  const se = data.signal_engine || {};
+  const hb = document.getElementById("header-balance");
+  const hp = document.getElementById("header-pnl");
+  if (hb) hb.textContent = "$" + bal.toFixed(2);
+  if (hp) {
+    hp.textContent = (pnl >= 0 ? "+" : "") + "$" + pnl.toFixed(2);
+    hp.style.color = pnl >= 0 ? "var(--green)" : "var(--red)";
+  }
+  // Update balance-val in stats bar
+  const bv = document.getElementById("balance-val");
+  if (bv) bv.textContent = "$" + bal.toFixed(2);
+  // Update agent header btn
+  const aBtn = document.getElementById("header-agent-btn");
+  if (aBtn && se.running !== undefined) {
+    aBtn.textContent = se.running ? "■ DURDUR AJAN" : "▶ BAŞLAT";
+    aBtn.className = se.running ? "btn-stop" : "btn-start";
+    aBtn.onclick = se.running ? () => toggleAgent(false) : () => toggleAgent(true);
+  }
+}
+
 async function init() {
   addLog("Dashboard başlatılıyor...", "info");
   await Promise.all([
@@ -2186,6 +2411,7 @@ async function init() {
     loadPositions(),
     loadMarketList(),
     refreshOverviewPositions(),
+    fetchLogs(),
   ]);
   addLog("Dashboard hazır ✓", "ok");
   updatePnLPreview();
@@ -2200,11 +2426,9 @@ setInterval(async () => {
   if (document.querySelector(".tab[data-tab='positions'].active")) {
     await loadPositions();
   }
-  // Loglar sekmesi açıksa ve otomatik yenile aktifse
-  if (document.querySelector(".tab[data-tab='logs'].active")) {
-    const autoRefresh = document.getElementById("log-auto-refresh");
-    if (autoRefresh && autoRefresh.checked) await fetchLogs();
-  }
+  // Logları her zaman arka planda güncelle
+  const autoRefresh = document.getElementById("log-auto-refresh");
+  if (!autoRefresh || autoRefresh.checked) await fetchLogs();
 }, 10_000);
 
 // Price poll for selected symbol every 5s

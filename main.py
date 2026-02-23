@@ -52,8 +52,18 @@ class _BufferHandler(logging.Handler):
 
 
 _buf_handler = _BufferHandler()
-_buf_handler.setLevel(logging.INFO)
-logging.getLogger().addHandler(_buf_handler)
+_buf_handler.setLevel(logging.DEBUG)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+root_logger.addHandler(_buf_handler)
+
+# Ayrıca tüm modül loggerlarını da yakala
+for mod_name in ("main", "strategies.manager", "execution.executor", 
+                  "signal_engine", "risk.engine", "data.binance_client",
+                  "rl_agent.agent", "api.execution"):
+    mod_logger = logging.getLogger(mod_name)
+    if _buf_handler not in mod_logger.handlers:
+        mod_logger.addHandler(_buf_handler)
 
 # ── Global state ──────────────────────────────────────────────────────────────
 data_client: BinanceDataClient = None
@@ -375,7 +385,18 @@ async def live_positions(request: Request):
             lev    = int(float(p.get("leverage") or p.get("info", {}).get("leverage") or 1))
             liq    = float(p.get("liquidationPrice") or p.get("info", {}).get("liquidationPrice") or 0)
             margin = float(p.get("initialMargin") or p.get("info", {}).get("isolatedMargin") or abs(notional / lev) if lev else 0)
-            side   = "LONG" if contracts > 0 else "SHORT"
+            
+            # Pozisyon yönünü birden fazla kaynaktan doğru belirle
+            pos_side_raw = (p.get("side") or p.get("positionSide") or 
+                           p.get("info", {}).get("positionSide") or "").upper()
+            if pos_side_raw in ("LONG", "SHORT"):
+                side = pos_side_raw
+            elif contracts > 0:
+                side = "LONG"
+            elif contracts < 0:
+                side = "SHORT"
+            else:
+                side = "LONG"  # fallback
             sym    = p.get("symbol") or ""
             if entry > 0 and mark > 0:
                 pnl_pct = ((mark - entry) / entry * 100 * lev) if side == "LONG" else ((entry - mark) / entry * 100 * lev)

@@ -41,6 +41,22 @@ class OrderResult:
     raw: dict = None
 
 
+def _fmt_symbol(symbol: str) -> str:
+    """BTCUSDT → BTC/USDT:USDT (ccxt futures format)"""
+    symbol = symbol.strip().upper()
+    # Already formatted
+    if "/" in symbol:
+        return symbol
+    # Remove :USDT suffix if present
+    symbol = symbol.replace(":USDT", "")
+    # Common quote currencies
+    for quote in ("USDT", "BUSD", "USDC", "BTC", "ETH", "BNB"):
+        if symbol.endswith(quote) and len(symbol) > len(quote):
+            base = symbol[:-len(quote)]
+            return f"{base}/{quote}:USDT" if quote == "USDT" else f"{base}/{quote}"
+    return symbol
+
+
 class OrderExecutor:
     def __init__(self, exchange, settings):
         self.exchange = exchange
@@ -49,12 +65,14 @@ class OrderExecutor:
 
     async def set_leverage(self, symbol: str, leverage: int):
         try:
-            await self.exchange.set_leverage(leverage, symbol)
-            logger.info(f"Kaldıraç {leverage}x → {symbol}")
+            sym = _fmt_symbol(symbol)
+            await self.exchange.set_leverage(leverage, sym)
+            logger.info(f"Kaldıraç {leverage}x → {sym}")
         except Exception as e:
             logger.error(f"Kaldıraç ayarlanamadı: {e}")
 
     async def place_order(self, req: OrderRequest, expected_price: Optional[float] = None) -> Optional[OrderResult]:
+        req.symbol = _fmt_symbol(req.symbol)
         """Ana emir gönderme. Slippage hesaplar, loglar."""
         try:
             params = {"reduceOnly": req.reduce_only}
@@ -118,8 +136,10 @@ class OrderExecutor:
             logger.error(f"Toplu iptal hatası: {e}")
 
     async def close_position(self, symbol: str, side: str, quantity: float) -> Optional[OrderResult]:
-        """Pozisyonu market ile kapat."""
-        close_side: Side = "SELL" if side.upper() == "BUY" else "BUY"
+        """Pozisyonu market ile kapat. side = mevcut pozisyon yönü (LONG/SHORT/BUY/SELL)"""
+        side_up = side.upper()
+        # Eğer mevcut pozisyon LONG veya BUY ise kapatmak için SELL
+        close_side: Side = "SELL" if side_up in ("BUY", "LONG") else "BUY"
         req = OrderRequest(
             symbol=symbol,
             side=close_side,
