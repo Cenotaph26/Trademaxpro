@@ -1,12 +1,18 @@
 """
 Strategy Manager — RL agent kararını alır, doğru stratejiyi çalıştırır.
+
+DÜZELTMELER v9:
+- Non-BTC sembol için doğru sym_fmt (_fmt_symbol ile)
+- handle_signal: quantity USDT'den lot'a doğru çevriliyor
+- handle_signal: sl_pct/tp_pct dashboard'dan geliyor ve kullanılıyor
+- Manuel işlem: open_market() ile direkt MARKET emir (testnet uyumlu)
 """
 import asyncio
 import logging
 from typing import Optional
 from datetime import datetime
 
-from execution.executor import OrderExecutor
+from execution.executor import OrderExecutor, _fmt_symbol
 from strategies.dca import DCAStrategy, DCAParams
 from strategies.grid import GridStrategy, GridParams
 from strategies.smarttrade import SmartTradeStrategy, SmartTradeParams
@@ -16,6 +22,18 @@ from utils import telegram as tg
 logger = logging.getLogger(__name__)
 
 
+async def _get_symbol_price(exchange, symbol: str, fallback: float = 0.0) -> float:
+    """Herhangi bir sembol için anlık fiyatı ccxt üzerinden çeker."""
+    try:
+        sym_fmt = _fmt_symbol(symbol)
+        ticker = await exchange.fetch_ticker(sym_fmt)
+        price = float(ticker.get("last") or ticker.get("close") or 0)
+        return price if price > 0 else fallback
+    except Exception as e:
+        logger.warning(f"[{symbol}] Fiyat alınamadı: {e}")
+        return fallback
+
+
 class StrategyManager:
     def __init__(self, data_client, risk_engine, settings):
         self.data = data_client
@@ -23,7 +41,6 @@ class StrategyManager:
         self.s = settings
         self.rl_agent = None
 
-        # Executor başlatmayı data_client connect sonrasına bırak
         self.executor: Optional[OrderExecutor] = None
         self.dca: Optional[DCAStrategy] = None
         self.grid: Optional[GridStrategy] = None
@@ -47,119 +64,121 @@ class StrategyManager:
 
     async def handle_signal(self, signal: dict) -> dict:
         """
-        TradingView webhook sinyalini işle.
-        signal = {symbol, side, timeframe, strategy_tag, entry_hint}
+        İşlem sinyalini işle.
+        signal = {symbol, side, quantity(USDT), leverage, sl_pct, tp_pct,
+                  order_type, strategy_tag, entry_hint}
         """
         self._ensure_init()
         symbol = signal.get("symbol", self.s.SYMBOL)
-        side = signal.get("side", "BUY").upper()
-        entry_hint = signal.get("entry_hint")
+        side   = signal.get("side", "BUY").upper()
 
-        logger.info(f"📡 Sinyal alındı: {symbol} {side} [{signal.get('strategy_tag')}]")
+        # Dashboard'dan gelen parametreler
+        usdt_qty    = float(signal.get("quantity", 100))
+        leverage    = int(signal.get("leverage", self.s.BASE_LEVERAGE))
+        sl_pct      = float(signal.get("sl_pct", self.s.RISK_PER_TRADE_PCT))
+        tp_pct      = float(signal.get("tp_pct", sl_pct * 2))
+        order_type  = signal.get("order_type", "MARKET").upper()
+        entry_hint  = signal.get("entry_hint")
 
-        # ── 1. Signal filters ─────────────────────────────────────────
+        logger.info(f"📡 Sinyal: {symbol} {side} ${usdt_qty} {leverage}x SL={sl_pct}% TP={tp_pct}% [{signal.get('strategy_tag')}]")
+
+        # ── 1. Signal filters ──────────────────────────────────────
         state = self.data.state
-        issues = []
-
-        # Spread filtresi
-        if state.spread_pct > 0.05:
-            issues.append(f"Spread yüksek: {state.spread_pct:.3f}%")
-
-        # Funding rate filtresi (aşırı funding varsa o yönde girme)
+        funding_ok = True
         if abs(state.funding_rate) > self.s.FUNDING_EXTREME_THRESHOLD:
-            # Yüksek pozitif funding → long'lar zarar eder → long'u engelle
             if state.funding_rate > 0 and side == "BUY":
-                issues.append(f"Aşırı pozitif funding ({state.funding_rate:.4f}), BUY engellendi")
+                funding_ok = False
             elif state.funding_rate < 0 and side == "SELL":
-                issues.append(f"Aşırı negatif funding ({state.funding_rate:.4f}), SELL engellendi")
+                funding_ok = False
+        if not funding_ok:
+            msg = f"Aşırı funding rate ({state.funding_rate:.4f}), {side} engellendi"
+            logger.warning(msg)
+            return {"ok": False, "reason": msg}
 
-        if issues:
-            logger.warning(f"Sinyal filtreden geçemedi: {issues}")
-            return {"ok": False, "reason": issues}
-
-        # ── 2. Risk engine check ──────────────────────────────────────
+        # ── 2. Risk engine check ───────────────────────────────────
         can, reason = self.risk.can_trade(side)
         if not can:
             return {"ok": False, "reason": reason}
 
-        # ── 3. RL agent kararı ────────────────────────────────────────
-        # Manuel işlemlerde RL bypass — strategy_tag "manual" ile başlıyorsa
+        # ── 3. RL agent (manuel bypass) ───────────────────────────
         is_manual = signal.get("strategy_tag", "").startswith("manual")
         decision = None
         if self.rl_agent and not is_manual:
             decision = self.rl_agent.decide()
-            logger.info(
-                f"🤖 RL Kararı: {decision.strategy} | {decision.risk_mode} | "
-                f"leverage≤{decision.leverage_cap}x | trade={decision.trade_allowed}"
-            )
+            logger.info(f"🤖 RL: {decision.strategy} | {decision.risk_mode} | trade={decision.trade_allowed}")
             if not decision.trade_allowed:
                 return {"ok": False, "reason": "RL agent: trade_allowed=0"}
-        elif is_manual:
-            logger.info("👤 Manuel işlem — RL bypass edildi")
 
-        strategy = decision.strategy if decision else "SMART"
         risk_mode_str = decision.risk_mode if decision else "normal"
-        leverage = decision.leverage_cap if decision else self.s.BASE_LEVERAGE
+        actual_leverage = leverage  # dashboard'dan gelen kaldıracı kullan
 
-        risk_mode = RiskMode(risk_mode_str)
-
-        # Kaldıraç ayarla
-        atr_pct = state.atr_14 / (state.mark_price + 1e-9)
-        actual_leverage = self.risk.get_leverage(risk_mode, atr_pct)
-        actual_leverage = min(actual_leverage, leverage)
+        # ── 4. Kaldıraç ayarla ─────────────────────────────────────
         await self.executor.set_leverage(symbol, actual_leverage)
 
-        # Bakiye
-        balance = await self.data.get_balance()
-        equity = balance["total"]
-
-        # BTC dışı semboller için kline ve fiyat kontrolü
-        if symbol != getattr(self.s, "SYMBOL", "BTCUSDT"):
-            try:
-                sym_fmt = symbol[:-4] + "/USDT:USDT"
-                raw_1h = await self.data.exchange.fetch_ohlcv(sym_fmt, "1h", limit=60)
-                if len(raw_1h) >= 10:
-                    ticker = await self.data.exchange.fetch_ticker(sym_fmt)
-                    # Geçici olarak state'i güncelle (sadece bu işlem için)
-                    state.mark_price = float(ticker.get("last") or ticker.get("close") or state.mark_price)
-                    logger.info(f"[{symbol}] Fiyat güncellendi: {state.mark_price}")
-            except Exception as e:
-                logger.warning(f"[{symbol}] Fiyat güncellenemedi: {e}")
-
-        # ── 4. Execution ──────────────────────────────────────────────
-        if strategy == "DCA":
-            params = DCAParams(
-                step_count=self.s.DCA_MAX_STEPS,
-                step_spacing_atr=self.s.DCA_STEP_SPACING_ATR,
-                size_multiplier=self.s.DCA_SIZE_MULTIPLIER,
-                stopout_r=self.s.DCA_STOPOUT_R,
-            )
-            result = await self.dca.open(symbol, side, params, equity)
-
-        elif strategy == "GRID":
-            params = GridParams(
-                grid_levels=self.s.GRID_LEVELS,
-                grid_width_atr=self.s.GRID_WIDTH_ATR,
-            )
-            result = await self.grid.open(symbol, params, base_qty=0.001)
-
-        else:  # SMART
-            atr = state.atr_14
+        # ── 5. Sembol fiyatını al ──────────────────────────────────
+        # Önce BTC mi kontrol et, değilse anlık fiyat çek
+        if symbol.upper() == self.s.SYMBOL.upper():
             mark = state.mark_price
-            st_params = SmartTradeParams(
-                side=side,
-                entry_price=entry_hint or mark,
+        else:
+            mark = await _get_symbol_price(self.data.exchange, symbol, fallback=state.mark_price)
+            logger.info(f"[{symbol}] Anlık fiyat: {mark}")
+
+        if mark <= 0:
+            return {"ok": False, "reason": f"[{symbol}] Geçerli fiyat alınamadı"}
+
+        # ── 6. Lot miktarını hesapla (USDT → kontrat) ─────────────
+        # notional = usdt_qty * leverage
+        # quantity (kontrat) = notional / mark_price
+        notional = usdt_qty * actual_leverage
+        quantity = round(notional / mark, 6)
+        if quantity <= 0:
+            return {"ok": False, "reason": "Hesaplanan miktar sıfır veya negatif"}
+        logger.info(f"[{symbol}] mark={mark:.6g} notional={notional:.2f} qty={quantity:.6g}")
+
+        # ── 7. Manuel işlem: direkt MARKET emir ───────────────────
+        if is_manual:
+            result = await self.executor.open_market(
+                symbol=symbol, side=side, quantity=quantity,
+                sl_pct=sl_pct, tp_pct=tp_pct, mark_price=mark,
+                strategy_tag=signal.get("strategy_tag", "manual"),
             )
-            # SL/TP önerisi
-            suggestion = self.smart.suggest_sl_tp(side, entry_hint or mark, atr, risk_mode_str)
-            st_params.sl_price = suggestion["sl"]
-            st_params.tp1_price = suggestion["tp1"]
-            st_params.tp2_price = suggestion["tp2"]
-            st_params.tp1_pct = self.s.ST_TP1_PCT
-            st_params.tp2_pct = self.s.ST_TP2_PCT
-            st_params.trailing = self.s.ST_TRAILING
-            st_params.trailing_callback_pct = self.s.ST_TRAILING_CALLBACK_PCT
-            result = await self.smart.open(symbol, st_params, equity)
+        else:
+            # Otomasyon: SmartTrade / DCA / Grid
+            strategy = decision.strategy if decision else "SMART"
+            if strategy == "DCA":
+                params = DCAParams(
+                    step_count=self.s.DCA_MAX_STEPS,
+                    step_spacing_atr=self.s.DCA_STEP_SPACING_ATR,
+                    size_multiplier=self.s.DCA_SIZE_MULTIPLIER,
+                    stopout_r=self.s.DCA_STOPOUT_R,
+                )
+                balance = await self.data.get_balance()
+                result = await self.dca.open(symbol, side, params, balance["total"])
+            elif strategy == "GRID":
+                params = GridParams(
+                    grid_levels=self.s.GRID_LEVELS,
+                    grid_width_atr=self.s.GRID_WIDTH_ATR,
+                )
+                result = await self.grid.open(symbol, params, base_qty=quantity)
+            else:  # SMART
+                atr = state.atr_14
+                sl_price = mark * (1 - sl_pct / 100) if side == "BUY" else mark * (1 + sl_pct / 100)
+                tp1_price = mark * (1 + tp_pct / 100) if side == "BUY" else mark * (1 - tp_pct / 100)
+                tp2_price = mark * (1 + tp_pct * 1.5 / 100) if side == "BUY" else mark * (1 - tp_pct * 1.5 / 100)
+                st_params = SmartTradeParams(
+                    side=side,
+                    entry_price=entry_hint or mark,
+                    sl_price=sl_price,
+                    tp1_price=tp1_price,
+                    tp2_price=tp2_price,
+                    tp1_pct=self.s.ST_TP1_PCT,
+                    tp2_pct=self.s.ST_TP2_PCT,
+                    trailing=self.s.ST_TRAILING,
+                    trailing_callback_pct=self.s.ST_TRAILING_CALLBACK_PCT,
+                    quantity=quantity,
+                )
+                balance = await self.data.get_balance()
+                result = await self.smart.open(symbol, st_params, balance["total"])
 
         # Pozisyon sayılarını güncelle
         await self._update_position_counts(symbol)
@@ -167,32 +186,25 @@ class StrategyManager:
         # Telegram bildirimi
         if result is not None:
             try:
-                mark = state.mark_price
-                qty_val = float(signal.get("quantity", 100))
-                sl_pct = float(signal.get("sl_pct", self.s.RISK_PER_TRADE_PCT))
-                tp_pct = float(signal.get("tp_pct", sl_pct * 2))
-                sl_price = mark * (1 - sl_pct / 100) if side == "BUY" else mark * (1 + sl_pct / 100)
-                tp_price = mark * (1 + tp_pct / 100) if side == "BUY" else mark * (1 - tp_pct / 100)
                 asyncio.create_task(tg.notify_trade_open(
-                    symbol=symbol, side=side, qty=qty_val,
+                    symbol=symbol, side=side, qty=usdt_qty,
                     leverage=actual_leverage, entry=mark,
-                    sl=sl_price, tp=tp_price, strategy=strategy,
+                    sl=mark * (1 - sl_pct / 100) if side == "BUY" else mark * (1 + sl_pct / 100),
+                    tp=mark * (1 + tp_pct / 100) if side == "BUY" else mark * (1 - tp_pct / 100),
+                    strategy=signal.get("strategy_tag", "manual"),
                 ))
             except Exception as e:
-                logger.warning(f"Telegram bildirimi gönderilemedi: {e}")
+                logger.debug(f"Telegram bildirim hatası: {e}")
 
-        return {
-            "ok": result is not None,
-            "strategy": strategy,
-            "risk_mode": risk_mode_str,
-            "leverage": actual_leverage,
-        }
+        ok = result is not None
+        logger.info(f"{'✅' if ok else '❌'} İşlem {'açıldı' if ok else 'başarısız'}: {symbol} {side}")
+        return {"ok": ok, "symbol": symbol, "side": side, "leverage": actual_leverage}
 
     async def _update_position_counts(self, symbol: str):
         try:
-            positions = await self.data.get_positions()
-            longs = sum(1 for p in positions if (p.get("side") or "").upper() == "LONG")
-            shorts = sum(1 for p in positions if (p.get("side") or "").upper() == "SHORT")
+            all_pos = await self.data.exchange.fetch_positions()
+            longs  = sum(1 for p in all_pos if float(p.get("contracts") or 0) > 0)
+            shorts = sum(1 for p in all_pos if float(p.get("contracts") or 0) < 0)
             self.risk.update_position_counts(longs, shorts)
         except Exception as e:
             logger.warning(f"Pozisyon sayısı güncellenemedi: {e}")
@@ -201,7 +213,6 @@ class StrategyManager:
         """Tek pozisyonu kapat — Binance'den canlı miktar çeker."""
         self._ensure_init()
         try:
-            # Canlı pozisyon bilgisini Binance'den çek
             all_positions = await self.data.exchange.fetch_positions()
             target = None
             for p in all_positions:
@@ -209,9 +220,8 @@ class StrategyManager:
                 if abs(contracts) < 1e-9:
                     continue
                 psym = p.get("symbol", "")
-                # Sembol normalizasyonu: BTC/USDT:USDT, BTCUSDT, BTC/USDT hepsini eşle
-                psym_clean = psym.replace("/", "").replace(":USDT", "").replace("USDT", "").upper()
-                sym_clean  = symbol.replace("/", "").replace(":USDT", "").replace("USDT", "").upper()
+                psym_clean = psym.replace("/", "").replace(":USDT", "").upper()
+                sym_clean  = symbol.replace("/", "").replace(":USDT", "").upper()
                 if psym_clean == sym_clean or psym == symbol:
                     target = p
                     break
@@ -219,19 +229,17 @@ class StrategyManager:
             if not target:
                 return {"ok": False, "reason": f"{symbol} açık pozisyon bulunamadı"}
 
-            contracts = float(target.get("contracts") or target.get("info", {}).get("positionAmt") or 0)
+            contracts = float(target.get("contracts") or 0)
             qty = abs(contracts)
             pos_side = "LONG" if contracts > 0 else "SHORT"
-            close_side = "SELL" if pos_side == "LONG" else "BUY"
 
-            result = await self.executor.close_position(symbol, close_side, qty)
+            result = await self.executor.close_position(symbol, pos_side, qty)
 
-            # Telegram bildirimi
             try:
-                upnl = float(target.get("unrealizedPnl") or target.get("info", {}).get("unRealizedProfit") or 0)
+                upnl  = float(target.get("unrealizedPnl") or 0)
                 entry = float(target.get("entryPrice") or 0)
-                mark  = float(target.get("markPrice") or 0)
-                pnl_pct = ((mark - entry) / entry * 100) if entry > 0 else 0
+                mmark = float(target.get("markPrice") or 0)
+                pnl_pct = ((mmark - entry) / entry * 100) if entry > 0 else 0
                 asyncio.create_task(tg.notify_trade_close(symbol, pos_side, upnl, pnl_pct))
             except Exception:
                 pass
@@ -245,13 +253,13 @@ class StrategyManager:
         """Bot kapatılırken tüm pozisyonları temizle."""
         self._ensure_init()
         try:
-            positions = await self.data.get_positions()
-            for p in positions:
-                symbol = p.get("symbol", self.s.SYMBOL)
-                side = p.get("side", "LONG")
-                qty = abs(float(p.get("contracts") or 0))
-                if qty > 0:
-                    close_side = "SELL" if side.upper() == "LONG" else "BUY"
-                    await self.executor.close_position(symbol, close_side, qty)
+            all_pos = await self.data.exchange.fetch_positions()
+            for p in all_pos:
+                contracts = float(p.get("contracts") or 0)
+                if abs(contracts) < 1e-9:
+                    continue
+                sym = p.get("symbol", self.s.SYMBOL)
+                pos_side = "LONG" if contracts > 0 else "SHORT"
+                await self.executor.close_position(sym, pos_side, abs(contracts))
         except Exception as e:
             logger.error(f"Pozisyon kapatma hatası: {e}")

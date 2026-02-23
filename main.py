@@ -51,19 +51,26 @@ class _BufferHandler(logging.Handler):
             pass
 
 
+# Root logger'a buffer handler ekle — tüm alt loggerlar propagate=True ile buraya ulaşır
 _buf_handler = _BufferHandler()
-_buf_handler.setLevel(logging.DEBUG)
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)
-root_logger.addHandler(_buf_handler)
+_buf_handler.setLevel(logging.INFO)
 
-# Ayrıca tüm modül loggerlarını da yakala
-for mod_name in ("main", "strategies.manager", "execution.executor", 
-                  "signal_engine", "risk.engine", "data.binance_client",
-                  "rl_agent.agent", "api.execution"):
-    mod_logger = logging.getLogger(mod_name)
-    if _buf_handler not in mod_logger.handlers:
-        mod_logger.addHandler(_buf_handler)
+root_logger = logging.getLogger()
+if not root_logger.handlers:
+    # Varsayılan stdout handler yoksa ekle
+    _stdout_handler = logging.StreamHandler()
+    _stdout_handler.setFormatter(logging.Formatter(
+        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%H:%M:%S",
+    ))
+    root_logger.addHandler(_stdout_handler)
+root_logger.addHandler(_buf_handler)
+root_logger.setLevel(logging.INFO)
+
+# uvicorn gibi kütüphanelerin loglarını da yakala
+for _lib_logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error", "fastapi"):
+    _lib = logging.getLogger(_lib_logger_name)
+    _lib.propagate = True  # root'a ilet
 
 # ── Global state ──────────────────────────────────────────────────────────────
 data_client: BinanceDataClient = None
@@ -398,12 +405,15 @@ async def live_positions(request: Request):
             else:
                 side = "LONG"  # fallback
             sym    = p.get("symbol") or ""
+            # Sembol görüntüleme formatını normalize et: BTC/USDT:USDT → BTCUSDT
+            sym_display = sym.replace("/", "").replace(":USDT", "").replace(":BUSD", "")
             if entry > 0 and mark > 0:
                 pnl_pct = ((mark - entry) / entry * 100 * lev) if side == "LONG" else ((entry - mark) / entry * 100 * lev)
             else:
                 pnl_pct = 0.0
             positions.append({
-                "symbol": sym,
+                "symbol": sym_display,    # görüntü için (BTCUSDT)
+                "symbol_ccxt": sym,       # ccxt için (BTC/USDT:USDT)
                 "side": side,
                 "contracts": abs(contracts),
                 "notional": abs(notional),

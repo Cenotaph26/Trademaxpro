@@ -823,6 +823,127 @@
     .far-right { display: none; }
     .stats-bar { grid-template-columns: repeat(4, 1fr); }
   }
+
+  /* ─── Professional polish ─────────────────────────────── */
+
+  /* Glow effect on active elements */
+  .btn-long:not(:disabled) { box-shadow: 0 0 12px rgba(0,255,136,0.25); }
+  .btn-short:not(:disabled) { box-shadow: 0 0 12px rgba(255,51,102,0.2); }
+
+  /* Stats bar gradient border bottom */
+  .stats-bar {
+    background: linear-gradient(180deg, #0f1320 0%, #0b0e1a 100%);
+    box-shadow: inset 0 -1px 0 #1a2035;
+  }
+
+  /* Stat item hover */
+  .stat-item { transition: background 0.15s; cursor: default; }
+  .stat-item:hover { background: rgba(0,212,255,0.03); }
+
+  /* Header gradient */
+  header {
+    background: linear-gradient(180deg, #0e1222 0%, #0b0e1a 100%);
+    box-shadow: 0 1px 0 #1a2035, 0 2px 8px rgba(0,0,0,0.4);
+  }
+
+  /* Coin cell improved */
+  .coin-cell {
+    transition: all 0.12s;
+    position: relative;
+    overflow: hidden;
+  }
+  .coin-cell::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: transparent;
+    transition: background 0.15s;
+  }
+  .coin-cell:hover::before { background: var(--border2); }
+  .coin-cell.selected::before { background: var(--cyan); }
+
+  /* Log area styling */
+  .log-area {
+    background: #000;
+    font-family: var(--mono);
+    line-height: 1.7;
+  }
+  .log-line { 
+    border-bottom: 1px solid rgba(26,32,53,0.4);
+    padding: 2px 0;
+  }
+  .log-line.ok { border-left: 2px solid rgba(0,255,136,0.4); padding-left: 6px; }
+  .log-line.error { border-left: 2px solid rgba(255,51,102,0.5); padding-left: 6px; }
+  .log-line.warn { border-left: 2px solid rgba(255,204,0,0.4); padding-left: 6px; }
+
+  /* Trade form polish */
+  .trade-form { background: linear-gradient(180deg, #0d1020 0%, #0b0e1a 100%); }
+  
+  /* Input focus glow */
+  input:focus, select:focus { 
+    box-shadow: 0 0 0 2px rgba(0,212,255,0.15);
+  }
+
+  /* Right panel scrollbar */
+  .right-panel::-webkit-scrollbar { width: 3px; }
+  .right-panel::-webkit-scrollbar-thumb { background: #1a2035; }
+
+  /* Strategy bars */
+  .strat-bar-fill { 
+    background: linear-gradient(90deg, var(--cyan), rgba(0,212,255,0.4));
+  }
+
+  /* Market item polish */
+  .market-item { border-radius: 4px; }
+
+  /* Far right panel */
+  .far-right {
+    background: #050709;
+    border-left: 1px solid var(--border);
+  }
+
+  /* Tabs underline animation */
+  .tab {
+    position: relative;
+    transition: color 0.15s;
+  }
+  .tab::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 50%; right: 50%;
+    height: 2px;
+    background: var(--cyan);
+    transition: left 0.2s, right 0.2s;
+  }
+  .tab.active::after { left: 0; right: 0; }
+  .tab.active { border-bottom-color: transparent; }
+
+  /* Status pill pulse */
+  @keyframes pulse-green {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,136,0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(0,255,136,0); }
+  }
+  .status-dot { animation: pulse-green 2s infinite; }
+  .status-dot.offline { animation: none; }
+
+  /* Agent section */
+  .agent-section { background: var(--bg); }
+  .agent-cell { transition: border-color 0.15s; }
+  .agent-cell:hover { border-color: var(--border2); }
+
+  /* Ctrl cards */
+  .ctrl-card { 
+    border-color: rgba(26,32,53,0.8);
+    background: linear-gradient(180deg, rgba(15,20,34,0.6) 0%, rgba(11,14,26,0.8) 100%);
+  }
+
+  /* Position cards in new style */
+  .pos-card { 
+    border-radius: 6px;
+    transition: border-color 0.15s;
+  }
+  .pos-card:hover { border-color: var(--border2); }
 </style>
 </head>
 <body>
@@ -2281,16 +2402,31 @@ document.getElementById("market-modal").addEventListener("click", e => {
 //  LOGS
 // ═══════════════════════════════════════════════════════════
 
-function addLog(message, type = "info") {
+let _logKeys = new Set();  // dedup: "time|msg"
+
+function addLog(message, type = "info", time = null) {
   const el = document.getElementById("log-area");
-  const now = new Date().toTimeString().slice(0, 8);
+  if (!el) return;
+  const ts = time || new Date().toTimeString().slice(0, 8);
+  const key = ts + "|" + message;
+  if (_logKeys.has(key)) return;  // duplicate önle
+  _logKeys.add(key);
+  if (_logKeys.size > 500) {
+    const oldest = _logKeys.values().next().value;
+    _logKeys.delete(oldest);
+  }
   const line = document.createElement("div");
   line.className = `log-line ${type}`;
-  line.innerHTML = `<span class="log-time">${now}</span>${escHtml(message)}`;
-  el.appendChild(line);
-  // Max 200 lines
-  while (el.children.length > 200) el.removeChild(el.firstChild);
-  el.scrollTop = el.scrollHeight;
+  line.innerHTML = `<span class="log-time">${ts}</span>${escHtml(message)}`;
+  // En yeni üstte göster
+  if (el.firstChild) {
+    el.insertBefore(line, el.firstChild);
+  } else {
+    el.appendChild(line);
+  }
+  while (el.children.length > 300) el.removeChild(el.lastChild);
+  // Scroll sadece kullanıcı zaten en üstteyse
+  if (el.scrollTop < 30) el.scrollTop = 0;
 }
 
 function escHtml(str) {
@@ -2308,6 +2444,7 @@ function setLogFilter(level, btn) {
 
 function applyLogFilter() {
   const el = document.getElementById("log-area");
+  if (!el) return;
   el.querySelectorAll(".log-line").forEach(line => {
     if (_logFilter === "all") {
       line.style.display = "";
@@ -2319,33 +2456,46 @@ function applyLogFilter() {
   });
 }
 
+let _lastLogTotal = -1;
+
 async function fetchLogs() {
   try {
     const res = await fetch("/status/logs?limit=200");
     if (!res.ok) return;
     const data = await res.json();
-    const logs = data.logs || data || [];
-    const el = document.getElementById("log-area");
-    el.innerHTML = "";
+    const logs = (data.logs || data || []);
+    
+    // Eğer yeni log yoksa hiçbir şey yapma (flicker önle)
+    if (data.total !== undefined && data.total === _lastLogTotal && logs.length > 0) return;
+    _lastLogTotal = data.total || logs.length;
+
+    // Yeni logları ekle (en yeni önce geliyor, dedup ile çift ekleme olmaz)
     logs.forEach(entry => {
-      let msg, lvl;
+      let msg, lvl, time;
       if (typeof entry === "string") {
-        msg = entry; lvl = "info";
+        msg = entry; lvl = "info"; time = null;
       } else {
         msg = entry.message || entry.msg || JSON.stringify(entry);
-        lvl = entry.level === "ERROR" ? "error" : entry.level === "WARNING" ? "warn" : 
-              (msg.includes("✅") || msg.includes("açıldı") || msg.includes("hazır")) ? "ok" : "info";
+        time = entry.time || null;
+        const lv = (entry.level || "").toUpperCase();
+        lvl = lv === "ERROR" ? "error" 
+            : lv === "WARNING" ? "warn"
+            : (msg.includes("✅") || msg.includes("açıldı") || msg.includes("hazır") || msg.includes("Emir:")) ? "ok" 
+            : "info";
       }
-      addLog(msg, lvl);
+      addLog(msg, lvl, time);
     });
     applyLogFilter();
   } catch(e) {
-    addLog("Log yükleme hatası: " + e, "error");
+    // sessiz hata
   }
 }
 
 function clearLogs() {
-  document.getElementById("log-area").innerHTML = "";
+  const el = document.getElementById("log-area");
+  if (el) el.innerHTML = "";
+  _logKeys.clear();
+  _lastLogTotal = -1;
   addLog("Loglar temizlendi", "info");
 }
 
@@ -2420,19 +2570,30 @@ async function init() {
 }
 
 // Poll every 10s
+// ─── Anti-flicker: sadece bir poll aynı anda çalışsın ───────
+let _polling = false;
 setInterval(async () => {
-  await refreshStatus();
-  await refreshOverviewPositions();
-  if (document.querySelector(".tab[data-tab='positions'].active")) {
-    await loadPositions();
+  if (_polling) return;
+  _polling = true;
+  try {
+    await refreshStatus();
+    await refreshOverviewPositions();
+    if (document.querySelector(".tab[data-tab='positions'].active")) {
+      await loadPositions();
+    }
+  } finally {
+    _polling = false;
   }
-  // Logları her zaman arka planda güncelle
+}, 8000);
+
+// Loglar ayrı interval (daha sık ama hafif)
+setInterval(async () => {
   const autoRefresh = document.getElementById("log-auto-refresh");
   if (!autoRefresh || autoRefresh.checked) await fetchLogs();
-}, 10_000);
+}, 4000);
 
-// Price poll for selected symbol every 5s
-setInterval(() => fetchSymbolPrice(state.symbol), 5_000);
+// Price poll for selected symbol every 6s
+setInterval(() => fetchSymbolPrice(state.symbol), 6000);
 
 init();
 </script>
