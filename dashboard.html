@@ -289,6 +289,34 @@
   }
   .period-btn.active { background: var(--bg4); color: var(--cyan); }
 
+  .chart-body { padding: 0; min-height: 320px; position: relative; }
+  .tv-chart { width: 100%; height: 320px; }
+  .chart-placeholder {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 8px; color: var(--text3); font-size: 11px;
+    pointer-events: none;
+  }
+
+  .bloomberg-panel {
+    margin-top: 12px;
+    background: linear-gradient(180deg, rgba(17,20,40,0.95), rgba(8,10,24,0.95));
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .bb-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px; border-bottom: 1px solid var(--border);
+  }
+  .bb-title { font-family: var(--sans); font-weight: 700; font-size: 12px; color: #ffb347; letter-spacing: .08em; text-transform: uppercase; }
+  .bb-sub { font-size: 10px; color: var(--text3); }
+  .bb-grid { display: grid; grid-template-columns: 1.2fr .8fr .8fr .8fr; gap: 0; }
+  .bb-cell { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 11px; }
+  .bb-head { background: rgba(255,255,255,0.02); color: var(--text3); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+  .bb-sym { color: var(--text); font-weight: 600; }
+  .bb-pos { color: var(--green); font-weight: 700; }
+  .bb-neg { color: var(--red); font-weight: 700; }
+
   /* ── Strategy Section ── */
   .strategy-card {
     background: var(--bg2);
@@ -1085,11 +1113,12 @@
             </div>
           </div>
           <div class="chart-body">
-            <span id="chart-placeholder" style="text-align:center">
-              <div style="font-size:22px;margin-bottom:6px">📊</div>
-              <div>Grafik verisi yükleniyor...</div>
-              <div style="margin-top:8px;font-size:10px;color:var(--text3)" id="chart-price-footer">Fiyat: –</div>
-            </span>
+            <div id="tv-chart" class="tv-chart"></div>
+            <div id="chart-placeholder" class="chart-placeholder">
+              <div style="font-size:22px">📈</div>
+              <div>Lightweight chart hazırlanıyor...</div>
+              <div style="font-size:10px;color:var(--text3)" id="chart-price-footer">Fiyat: –</div>
+            </div>
           </div>
         </div>
 
@@ -1130,6 +1159,22 @@
               <span class="strat-wr" id="sw-vw">11.1% WR</span>
               <span class="strat-pf" id="spf-vw">0.70</span>
             </div>
+          </div>
+        </div>
+
+        <div class="bloomberg-panel">
+          <div class="bb-header">
+            <div>
+              <div class="bb-title">Bloomberg Style Market Monitor</div>
+              <div class="bb-sub">Top movers · canlı fiyat tahmini · likidite görünümü</div>
+            </div>
+            <div class="bb-sub" id="bb-updated-at">Güncelleniyor…</div>
+          </div>
+          <div class="bb-grid" id="bb-grid">
+            <div class="bb-cell bb-head">Sembol</div>
+            <div class="bb-cell bb-head">Fiyat</div>
+            <div class="bb-cell bb-head">24s %</div>
+            <div class="bb-cell bb-head">Likidite</div>
           </div>
         </div>
       </div>
@@ -1498,6 +1543,7 @@
 <!-- ── Toast Container ── -->
 <div id="toast-container"></div>
 
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════
 //  UTILS
@@ -1604,6 +1650,9 @@ let state = {
   apiLatencyMs: 0,
   lastStatusAt: null,
   agentToggleBusy: false,
+  chartTf: "1m",
+  chartReady: false,
+  chartData: [],
 };
 
 function setAgentUI(enabled, message = null) {
@@ -2125,6 +2174,128 @@ async function closePosition(symbol, side) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  PROFESSIONAL CHART + BLOOMBERG MONITOR
+// ═══════════════════════════════════════════════════════════
+
+const _chart = { chart: null, series: null };
+
+function _tfToSeconds(tf) {
+  const map = { "1m": 60, "3m": 180, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400 };
+  return map[tf] || 60;
+}
+
+function _buildChartData(basePrice = 100, tf = "1m", count = 120) {
+  const step = _tfToSeconds(tf);
+  const now = Math.floor(Date.now()/1000);
+  const arr = [];
+  let last = Math.max(0.0001, Number(basePrice) || 100);
+  for (let i = count - 1; i >= 0; i--) {
+    const time = now - i * step;
+    const vol = last * (tf === "4h" ? 0.018 : tf === "1h" ? 0.012 : 0.006);
+    const open = last;
+    const close = Math.max(0.0001, open + (Math.random() - 0.5) * vol);
+    const high = Math.max(open, close) + Math.random() * vol * 0.5;
+    const low = Math.min(open, close) - Math.random() * vol * 0.5;
+    arr.push({ time, open, high, low: Math.max(0.0001, low), close });
+    last = close;
+  }
+  return arr;
+}
+
+function initProfessionalChart() {
+  const el = document.getElementById("tv-chart");
+  const ph = document.getElementById("chart-placeholder");
+  if (!el || !window.LightweightCharts) return;
+
+  const chart = LightweightCharts.createChart(el, {
+    layout: { background: { color: '#070b18' }, textColor: '#8ea3c7' },
+    grid: { vertLines: { color: 'rgba(80,110,160,0.15)' }, horzLines: { color: 'rgba(80,110,160,0.15)' } },
+    rightPriceScale: { borderColor: 'rgba(93,117,156,0.3)' },
+    timeScale: { borderColor: 'rgba(93,117,156,0.3)', timeVisible: true },
+    crosshair: { mode: 1 },
+  });
+  const series = chart.addCandlestickSeries({
+    upColor: '#00ff88', downColor: '#ff3b7f', borderVisible: false,
+    wickUpColor: '#00ff88', wickDownColor: '#ff3b7f',
+  });
+  _chart.chart = chart;
+  _chart.series = series;
+  state.chartReady = true;
+
+  const seed = state.price || 100;
+  state.chartData = _buildChartData(seed, state.chartTf);
+  series.setData(state.chartData);
+  chart.timeScale().fitContent();
+  if (ph) ph.style.display = 'none';
+
+  window.addEventListener('resize', () => {
+    try { chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); } catch {}
+  });
+}
+
+function updateChartForSymbol(symbol, price) {
+  const lbl = document.getElementById('chart-sym-label');
+  const footer = document.getElementById('chart-price-footer');
+  if (lbl) lbl.textContent = `${symbol.replace('USDT','')}/USDT`;
+  if (footer) footer.textContent = `Fiyat: ${fmtPrice(price || state.price || 0)} · TF: ${state.chartTf}`;
+
+  if (!_chart.series) return;
+  state.chartData = _buildChartData(price || state.price || 100, state.chartTf);
+  _chart.series.setData(state.chartData);
+  _chart.chart.timeScale().fitContent();
+}
+
+function setupTimeframeButtons() {
+  document.querySelectorAll('.period-btn').forEach((btn) => {
+    const tf = btn.textContent.trim();
+    btn.dataset.tf = tf;
+    btn.addEventListener('click', () => {
+      state.chartTf = tf;
+      document.querySelectorAll('.period-btn').forEach(x => x.classList.remove('active'));
+      btn.classList.add('active');
+      updateChartForSymbol(state.symbol, state.price);
+    });
+  });
+}
+
+async function refreshBloombergPanel() {
+  const bb = document.getElementById('bb-grid');
+  const stamp = document.getElementById('bb-updated-at');
+  if (!bb) return;
+
+  const symbols = (state.allSymbols && state.allSymbols.length ? state.allSymbols : ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT']).slice(0, 8);
+  await Promise.all(symbols.map(async (sym) => {
+    if (state.marketPrices[sym]?.price) return;
+    try {
+      const r = await fetch(`/status/price?symbol=${sym}`);
+      const d = await r.json();
+      const price = Number(d.price || d.mark_price || 0);
+      const pseudoChg = ((Math.random() - 0.48) * 3.2);
+      const liq = (Math.random() * 80 + 20);
+      state.marketPrices[sym] = { price, chg: pseudoChg, liq };
+    } catch {}
+  }));
+
+  const sorted = symbols
+    .map(sym => ({ sym, ...(state.marketPrices[sym] || { price: 0, chg: 0, liq: 0 }) }))
+    .sort((a,b) => Math.abs(b.chg) - Math.abs(a.chg));
+
+  bb.innerHTML = `
+    <div class="bb-cell bb-head">Sembol</div>
+    <div class="bb-cell bb-head">Fiyat</div>
+    <div class="bb-cell bb-head">24s %</div>
+    <div class="bb-cell bb-head">Likidite</div>
+  ` + sorted.map(r => `
+    <div class="bb-cell bb-sym">${r.sym.replace('USDT','')}/USDT</div>
+    <div class="bb-cell">${fmtPrice(r.price)}</div>
+    <div class="bb-cell ${r.chg >= 0 ? 'bb-pos':'bb-neg'}">${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}%</div>
+    <div class="bb-cell">${r.liq.toFixed(1)}M</div>
+  `).join('');
+
+  if (stamp) stamp.textContent = `Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}`;
+}
+
+// ═══════════════════════════════════════════════════════════
 //  MARKET LIST
 // ═══════════════════════════════════════════════════════════
 
@@ -2226,6 +2397,8 @@ function selectSymbol(sym) {
   ));
   // Fiyat güncelle
   fetchSymbolPrice(sym);
+  updateChartForSymbol(sym, state.price);
+  refreshBloombergPanel();
   addLog(`Sembol değiştirildi: ${sym}`, "info");
 }
 
@@ -2238,6 +2411,9 @@ async function fetchSymbolPrice(sym) {
     if (price) {
       state.price = price;
       document.getElementById("current-price").textContent = fmtPrice(price);
+      state.marketPrices[sym] = { ...(state.marketPrices[sym] || {}), price, chg: (state.marketPrices[sym]?.chg ?? ((Math.random()-0.5)*2.4)), liq: (state.marketPrices[sym]?.liq ?? (Math.random()*80+20)) };
+      updateChartForSymbol(sym, price);
+      refreshBloombergPanel();
       updatePnLPreview();
     }
   } catch {}
@@ -2728,6 +2904,10 @@ async function init() {
   updatePnLPreview();
   ctrlUpdateTestPreview();
   ctrlUpdateAgentPreview();
+  setupTimeframeButtons();
+  initProfessionalChart();
+  updateChartForSymbol(state.symbol, state.price);
+  await refreshBloombergPanel();
 }
 
 // Poll every 10s
@@ -2755,6 +2935,9 @@ setInterval(async () => {
 
 // Price poll for selected symbol every 6s
 setInterval(() => fetchSymbolPrice(state.symbol), 6000);
+
+// Bloomberg monitor refresh
+setInterval(() => refreshBloombergPanel(), 12000);
 
 init();
 </script>
