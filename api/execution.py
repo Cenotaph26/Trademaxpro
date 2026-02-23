@@ -123,14 +123,35 @@ async def close_trade(request: Request, body: CloseRequest):
             fn = getattr(strategy_manager, "close_all_positions", None)
             result = await fn() if callable(fn) else {"ok": True, "msg": "no-op"}
         else:
-            fn = getattr(strategy_manager, "close_position", None)
-            if callable(fn):
-                try:
-                    result = await fn(body.symbol, body.side)
-                except TypeError:
-                    result = await fn(body.symbol)
+            close_fn = getattr(strategy_manager, "close_position", None)
+            if callable(close_fn):
+                result = await close_fn(body.symbol, body.side)
             else:
-                result = {"ok": False, "reason": "close_position not implemented"}
+                # Fallback: doğrudan exchange üzerinden kapat
+                try:
+                    dc = request.app.state.data_client
+                    all_pos = await dc.exchange.fetch_positions()
+                    target = None
+                    for p in all_pos:
+                        contracts = float(p.get("contracts") or 0)
+                        if abs(contracts) < 1e-9:
+                            continue
+                        psym = p.get("symbol", "")
+                        if psym == body.symbol or body.symbol in psym.replace("/", "").replace(":USDT", ""):
+                            target = p
+                            break
+                    if not target:
+                        return {"ok": False, "reason": f"{body.symbol} pozisyon bulunamadı"}
+                    qty = abs(float(target.get("contracts") or 0))
+                    contracts_val = float(target.get("contracts") or 0)
+                    close_side = "SELL" if contracts_val > 0 else "BUY"
+                    raw = await dc.exchange.create_order(
+                        symbol=body.symbol, type="market", side=close_side,
+                        amount=qty, params={"reduceOnly": True}
+                    )
+                    result = {"ok": True, "order_id": raw.get("id")}
+                except Exception as e2:
+                    result = {"ok": False, "reason": str(e2)}
 
         if isinstance(result, dict):
             if "ok" not in result:

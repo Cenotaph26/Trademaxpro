@@ -184,6 +184,47 @@ class StrategyManager:
         except Exception as e:
             logger.warning(f"Pozisyon sayısı güncellenemedi: {e}")
 
+    async def close_position(self, symbol: str, side: str = None) -> dict:
+        """Tek pozisyonu kapat — Binance'den canlı miktar çeker."""
+        self._ensure_init()
+        try:
+            # Canlı pozisyon bilgisini Binance'den çek
+            all_positions = await self.data.exchange.fetch_positions()
+            target = None
+            for p in all_positions:
+                contracts = float(p.get("contracts") or p.get("info", {}).get("positionAmt") or 0)
+                if abs(contracts) < 1e-9:
+                    continue
+                psym = p.get("symbol", "")
+                if psym == symbol or psym.replace("/", "").replace(":USDT", "") == symbol.replace("USDT", ""):
+                    target = p
+                    break
+
+            if not target:
+                return {"ok": False, "reason": f"{symbol} açık pozisyon bulunamadı"}
+
+            contracts = float(target.get("contracts") or target.get("info", {}).get("positionAmt") or 0)
+            qty = abs(contracts)
+            pos_side = "LONG" if contracts > 0 else "SHORT"
+            close_side = "SELL" if pos_side == "LONG" else "BUY"
+
+            result = await self.executor.close_position(symbol, close_side, qty)
+
+            # Telegram bildirimi
+            try:
+                upnl = float(target.get("unrealizedPnl") or target.get("info", {}).get("unRealizedProfit") or 0)
+                entry = float(target.get("entryPrice") or 0)
+                mark  = float(target.get("markPrice") or 0)
+                pnl_pct = ((mark - entry) / entry * 100) if entry > 0 else 0
+                asyncio.create_task(tg.notify_trade_close(symbol, pos_side, upnl, pnl_pct))
+            except Exception:
+                pass
+
+            return {"ok": result is not None, "symbol": symbol, "qty": qty, "side": pos_side}
+        except Exception as e:
+            logger.error(f"close_position hatası [{symbol}]: {e}", exc_info=True)
+            return {"ok": False, "reason": str(e)}
+
     async def close_all_positions(self):
         """Bot kapatılırken tüm pozisyonları temizle."""
         self._ensure_init()

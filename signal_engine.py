@@ -185,9 +185,9 @@ class SignalScore:
 
     @property
     def side(self) -> Optional[str]:
-        if self.total > 0.25:
+        if self.total > 0.20:
             return "BUY"
-        elif self.total < -0.25:
+        elif self.total < -0.20:
             return "SELL"
         return None
 
@@ -233,11 +233,11 @@ class AutoSignalEngine:
         self._cooldown_hours = 4
 
         # ── Multi-symbol mod ──────────────────────────────────────
-        # settings.SYMBOL varsa sadece onu tara, yoksa top listesini
+        top_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
         self._target_symbols = (
-            [getattr(settings, "SYMBOL", "BTCUSDT")]
-            if getattr(settings, "MULTI_SYMBOL", False) is False
-            else TOP_SYMBOLS
+            top_symbols
+            if getattr(settings, "MULTI_SYMBOL", True) is not False
+            else [getattr(settings, "SYMBOL", "BTCUSDT")]
         )
 
     # ─────────────────────────────────────────────────────────────
@@ -294,8 +294,27 @@ class AutoSignalEngine:
             logger.debug(f"[{symbol}] Cooldown aktif, {remaining:.1f} saat kaldı")
             return
 
-        candles_1h = list(ds.klines_1h)
-        candles_5m = list(ds.klines_5m)
+        # ── Her sembol için kline verisini Binance'den çek ────────
+        try:
+            is_main_symbol = (symbol == getattr(self.s, "SYMBOL", "BTCUSDT"))
+            if is_main_symbol:
+                candles_1h = list(ds.klines_1h)
+                candles_5m = list(ds.klines_5m)
+            else:
+                # Farklı sembol → doğrudan Binance'den çek
+                sym_fmt = symbol[:-4] + "/USDT:USDT"  # BTCUSDT → BTC/USDT:USDT
+                raw_1h = await self.data.exchange.fetch_ohlcv(sym_fmt, "1h", limit=200)
+                raw_5m = await self.data.exchange.fetch_ohlcv(sym_fmt, "5m", limit=100)
+                candles_1h = [{"ts":c[0],"open":c[1],"high":c[2],"low":c[3],"close":c[4],"volume":c[5]} for c in raw_1h]
+                candles_5m = [{"ts":c[0],"open":c[1],"high":c[2],"low":c[3],"close":c[4],"volume":c[5]} for c in raw_5m]
+                # O sembolün anlık fiyatını da çek
+                ticker = await self.data.exchange.fetch_ticker(sym_fmt)
+                current_price = float(ticker.get("last") or ticker.get("close") or 0)
+        except Exception as e:
+            logger.warning(f"[{symbol}] Kline çekme hatası: {e}")
+            candles_1h = list(ds.klines_1h)
+            candles_5m = list(ds.klines_5m)
+            current_price = ds.mark_price
 
         if len(candles_1h) < 50:
             logger.warning(f"[{symbol}] Yetersiz kline verisi ({len(candles_1h)}<50), atlandı")
@@ -303,7 +322,8 @@ class AutoSignalEngine:
 
         closes_1h = [c["close"] for c in candles_1h]
         closes_5m = [c["close"] for c in candles_5m] if candles_5m else closes_1h
-        current_price = ds.mark_price
+        if symbol == getattr(self.s, "SYMBOL", "BTCUSDT"):
+            current_price = ds.mark_price
 
         score = SignalScore()
 
@@ -452,16 +472,14 @@ class AutoSignalEngine:
         if self.rl:
             try:
                 decision = self.rl.decide()
-                if not decision.trade_allowed:
+                # RL henüz eğitilmemişse (epsilon yüksek) trade_allowed'ı ignore et
+                if not decision.trade_allowed and self.rl.epsilon < 0.5:
                     logger.info(f"🤖 RL agent işlemi engelledi (ε={self.rl.epsilon:.3f})")
                     return
+                elif not decision.trade_allowed:
+                    logger.info(f"🤖 RL eğitim aşamasında (ε={self.rl.epsilon:.3f}) — trade_allowed bypass")
 
-                if decision.strategy == "GRID" and ds.regime == "trend" and random.random() > 0.5:
-                    logger.info("🤖 RL: GRID seçti ama trend rejimi — SMART'a geçiliyor")
-                    decision_strategy = "SMART"
-                else:
-                    decision_strategy = decision.strategy
-
+                decision_strategy = decision.strategy
                 logger.info(
                     f"🤖 RL Onayı: {decision_strategy} | {decision.risk_mode} | "
                     f"kaldıraç≤{decision.leverage_cap}x | ε={self.rl.epsilon:.3f}"
