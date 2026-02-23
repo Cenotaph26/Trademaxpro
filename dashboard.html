@@ -1729,12 +1729,15 @@ async function refreshStatus() {
 
 function renderLastSignal(sig) {
   const el = document.getElementById("last-signal-content");
-  const timeEl = document.getElementById("last-signal-time");
+  if (!el) return;
   if (!sig || !sig.time) {
     el.innerHTML = '<div class="empty-state"><div>📡</div>Sinyal bekleniyor...</div>';
     return;
   }
-  timeEl.textContent = timeAgo(sig.time);
+  // last-signal-time opsiyonel (eski layout'ta vardı)
+  const timeEl = document.getElementById("last-signal-time");
+  if (timeEl) timeEl.textContent = timeAgo(sig.time);
+
   const side = sig.side;
   const sideClass = side === "BUY" ? "buy" : side === "SELL" ? "sell" : "none";
   const sideLabel = side === "BUY" ? "LONG" : side === "SELL" ? "SHORT" : "YOK";
@@ -1757,7 +1760,10 @@ function renderLastSignal(sig) {
     <div class="signal-card" style="margin-bottom:0">
       <div class="signal-header">
         <div class="signal-symbol">${sig.symbol || state.symbol}</div>
-        <div class="signal-side ${sideClass}">${sideLabel}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:10px;color:var(--text3)">${timeAgo(sig.time)}</span>
+          <div class="signal-side ${sideClass}">${sideLabel}</div>
+        </div>
       </div>
       <div class="signal-score-bar">
         <div class="signal-score-fill ${fillClass}" style="width:${pct}%"></div>
