@@ -49,7 +49,16 @@ class SmartTradeStrategy:
             logger.warning(f"SmartTrade engellendi: {reason}")
             return None
 
-        mark = self.data.state.mark_price
+        # BTC dışı semboller için anlık fiyatı Binance'den çek
+        if symbol == getattr(self.s, "SYMBOL", "BTCUSDT"):
+            mark = self.data.state.mark_price
+        else:
+            try:
+                sym_fmt = symbol[:-4] + "/USDT:USDT"
+                ticker = await self.data.exchange.fetch_ticker(sym_fmt)
+                mark = float(ticker.get("last") or ticker.get("close") or 0)
+            except Exception:
+                mark = self.data.state.mark_price
 
         # Auto-calculate SL/TP if not set
         atr = self.data.state.atr_14

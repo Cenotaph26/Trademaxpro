@@ -113,6 +113,19 @@ class StrategyManager:
         balance = await self.data.get_balance()
         equity = balance["total"]
 
+        # BTC dışı semboller için kline ve fiyat kontrolü
+        if symbol != getattr(self.s, "SYMBOL", "BTCUSDT"):
+            try:
+                sym_fmt = symbol[:-4] + "/USDT:USDT"
+                raw_1h = await self.data.exchange.fetch_ohlcv(sym_fmt, "1h", limit=60)
+                if len(raw_1h) >= 10:
+                    ticker = await self.data.exchange.fetch_ticker(sym_fmt)
+                    # Geçici olarak state'i güncelle (sadece bu işlem için)
+                    state.mark_price = float(ticker.get("last") or ticker.get("close") or state.mark_price)
+                    logger.info(f"[{symbol}] Fiyat güncellendi: {state.mark_price}")
+            except Exception as e:
+                logger.warning(f"[{symbol}] Fiyat güncellenemedi: {e}")
+
         # ── 4. Execution ──────────────────────────────────────────────
         if strategy == "DCA":
             params = DCAParams(
@@ -196,7 +209,10 @@ class StrategyManager:
                 if abs(contracts) < 1e-9:
                     continue
                 psym = p.get("symbol", "")
-                if psym == symbol or psym.replace("/", "").replace(":USDT", "") == symbol.replace("USDT", ""):
+                # Sembol normalizasyonu: BTC/USDT:USDT, BTCUSDT, BTC/USDT hepsini eşle
+                psym_clean = psym.replace("/", "").replace(":USDT", "").replace("USDT", "").upper()
+                sym_clean  = symbol.replace("/", "").replace(":USDT", "").replace("USDT", "").upper()
+                if psym_clean == sym_clean or psym == symbol:
                     target = p
                     break
 

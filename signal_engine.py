@@ -546,10 +546,12 @@ class AutoSignalEngine:
             "running": self._running,
             "scan_interval_min": self.scan_interval // 60,
             "signal_count": self.signal_count,
+            "trade_count": self.signal_count,
             "last_signal": self.last_signal,
             "cooldowns": {
                 sym: self._last_trade_time[sym].isoformat()
                 for sym in self._last_trade_time
             },
             "target_symbols": self._target_symbols,
+            "min_signal_score": getattr(self, "min_signal_score", 0.20),
         }

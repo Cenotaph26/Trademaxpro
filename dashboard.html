@@ -722,6 +722,36 @@
   .badge.range  { background: rgba(255,215,64,0.15); color: var(--yellow); }
   .badge.volatile { background: rgba(255,61,87,0.15); color: var(--red); }
 
+  /* ── Log Filter Buttons ── */
+  .log-filter-btn {
+    background: var(--bg4);
+    border: 1px solid var(--border);
+    color: var(--text3);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .log-filter-btn.active { border-color: var(--cyan); color: var(--cyan); }
+  .log-filter-btn:hover { border-color: var(--text2); color: var(--text2); }
+
+  /* ── Log Filter Buttons ── */
+  .log-filter-btn {
+    background: var(--bg4);
+    border: 1px solid var(--border);
+    color: var(--text3);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .log-filter-btn.active { border-color: var(--cyan); color: var(--cyan); }
+  .log-filter-btn:hover { border-color: var(--text2); color: var(--text2); }
+
   /* ── Responsive ── */
   @media (max-width: 768px) {
     .layout { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
@@ -839,8 +869,32 @@
 
     <!-- SIGNALS TAB -->
     <div class="panel-content" id="tab-signals">
+      <!-- Ajan Durum Kartı -->
+      <div class="card" id="agent-activity-card" style="margin-bottom:10px;border-color:rgba(0,188,212,0.2)">
+        <div class="card-title" style="color:var(--cyan)">🤖 Ajan Aktivitesi</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+          <div style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
+            <div style="font-size:9px;color:var(--text3);margin-bottom:3px;text-transform:uppercase">Durum</div>
+            <div id="sig-agent-status" style="font-size:13px;font-weight:600;color:var(--text3)">–</div>
+          </div>
+          <div style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
+            <div style="font-size:9px;color:var(--text3);margin-bottom:3px;text-transform:uppercase">İşlem Sayısı</div>
+            <div id="sig-trade-count" style="font-size:13px;font-weight:600;color:var(--cyan)">0</div>
+          </div>
+          <div style="background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
+            <div style="font-size:9px;color:var(--text3);margin-bottom:3px;text-transform:uppercase">RL Epsilon</div>
+            <div id="sig-epsilon" style="font-size:13px;font-weight:600;color:var(--yellow)">–</div>
+          </div>
+        </div>
+        <!-- Sonraki tarama -->
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+          <span style="font-size:11px;color:var(--text2)">Taranan semboller:</span>
+          <span id="sig-symbols" style="font-size:11px;color:var(--cyan)">BTC, ETH, SOL, BNB, XRP</span>
+        </div>
+      </div>
+
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <span style="color:var(--text3);font-size:10px;letter-spacing:0.1em;text-transform:uppercase">Sinyal Geçmişi</span>
+        <span style="color:var(--text3);font-size:10px;letter-spacing:0.1em;text-transform:uppercase">Son Sinyaller</span>
         <button class="btn-secondary" onclick="refreshStatus()">↻ Yenile</button>
       </div>
       <div id="signals-content">
@@ -1030,12 +1084,23 @@
 
     <!-- LOGS TAB -->
     <div class="panel-content" id="tab-logs">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <span style="color:var(--text3);font-size:10px;letter-spacing:0.1em;text-transform:uppercase">Sistem Logları</span>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text3);cursor:pointer">
+            <input type="checkbox" id="log-auto-refresh" checked style="width:12px;height:12px"> Otomatik
+          </label>
           <button class="btn-secondary" onclick="fetchLogs()">↻ Yenile</button>
           <button class="btn-secondary" onclick="clearLogs()">Temizle</button>
         </div>
+      </div>
+      <!-- Filtre -->
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <button class="log-filter-btn active" data-level="all" onclick="setLogFilter('all',this)">Tümü</button>
+        <button class="log-filter-btn" data-level="error" onclick="setLogFilter('error',this)">Hata</button>
+        <button class="log-filter-btn" data-level="warn" onclick="setLogFilter('warn',this)">Uyarı</button>
+        <button class="log-filter-btn" data-level="ok" onclick="setLogFilter('ok',this)">Başarı</button>
+        <button class="log-filter-btn" data-level="agent" onclick="setLogFilter('agent',this)">🤖 Ajan</button>
       </div>
       <div class="log-area" id="log-area">
         <div class="log-line info"><span class="log-time">--:--:--</span>Sistem başlatılıyor...</div>
@@ -1344,6 +1409,18 @@ async function refreshStatus() {
     // RL agent
     const rl = data.rl_agent ?? {};
     document.getElementById("agent-epsilon").textContent = rl.epsilon !== undefined ? fmt(rl.epsilon, 3) : "–";
+
+    // Sinyaller sekmesi ajan paneli güncelle
+    const sigStatus = document.getElementById("sig-agent-status");
+    if (sigStatus) {
+      const isRunning = se.running ?? false;
+      sigStatus.textContent = isRunning ? "✅ Çalışıyor" : "⏹ Durduruldu";
+      sigStatus.style.color = isRunning ? "var(--green)" : "var(--text3)";
+    }
+    const sigCount = document.getElementById("sig-trade-count");
+    if (sigCount) sigCount.textContent = se.signal_count ?? se.trade_count ?? 0;
+    const sigEps = document.getElementById("sig-epsilon");
+    if (sigEps) sigEps.textContent = rl.epsilon !== undefined ? fmt(rl.epsilon, 3) : "–";
 
     // Regime
     const regime = data.regime ?? data.market_regime ?? "–";
@@ -2046,23 +2123,51 @@ function escHtml(str) {
   return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
+let _logFilter = "all";
+
+function setLogFilter(level, btn) {
+  _logFilter = level;
+  document.querySelectorAll(".log-filter-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  applyLogFilter();
+}
+
+function applyLogFilter() {
+  const el = document.getElementById("log-area");
+  el.querySelectorAll(".log-line").forEach(line => {
+    if (_logFilter === "all") {
+      line.style.display = "";
+    } else if (_logFilter === "agent") {
+      line.style.display = (line.textContent.includes("🤖") || line.textContent.includes("RL") || line.textContent.includes("Sinyal") || line.textContent.includes("İşlem aç")) ? "" : "none";
+    } else {
+      line.style.display = line.classList.contains(_logFilter) ? "" : "none";
+    }
+  });
+}
+
 async function fetchLogs() {
   try {
-    const res = await fetch("/status/logs?limit=100");
+    const res = await fetch("/status/logs?limit=200");
     if (!res.ok) return;
     const data = await res.json();
     const logs = data.logs || data || [];
     const el = document.getElementById("log-area");
     el.innerHTML = "";
     logs.forEach(entry => {
+      let msg, lvl;
       if (typeof entry === "string") {
-        addLog(entry, "info");
+        msg = entry; lvl = "info";
       } else {
-        addLog(entry.message || entry.msg || JSON.stringify(entry),
-               entry.level === "ERROR" ? "error" : entry.level === "WARNING" ? "warn" : "info");
+        msg = entry.message || entry.msg || JSON.stringify(entry);
+        lvl = entry.level === "ERROR" ? "error" : entry.level === "WARNING" ? "warn" : 
+              (msg.includes("✅") || msg.includes("açıldı") || msg.includes("hazır")) ? "ok" : "info";
       }
+      addLog(msg, lvl);
     });
-  } catch {}
+    applyLogFilter();
+  } catch(e) {
+    addLog("Log yükleme hatası: " + e, "error");
+  }
 }
 
 function clearLogs() {
@@ -2091,10 +2196,14 @@ async function init() {
 // Poll every 10s
 setInterval(async () => {
   await refreshStatus();
-  // Pozisyonları her 15 saniyede otomatik güncelle
   await refreshOverviewPositions();
   if (document.querySelector(".tab[data-tab='positions'].active")) {
     await loadPositions();
+  }
+  // Loglar sekmesi açıksa ve otomatik yenile aktifse
+  if (document.querySelector(".tab[data-tab='logs'].active")) {
+    const autoRefresh = document.getElementById("log-auto-refresh");
+    if (autoRefresh && autoRefresh.checked) await fetchLogs();
   }
 }, 10_000);
 
