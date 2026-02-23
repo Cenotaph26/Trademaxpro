@@ -1601,7 +1601,49 @@ let state = {
   symbolScores: {},
   agentRunning: false,
   marketPrices: {},
+  apiLatencyMs: 0,
+  lastStatusAt: null,
+  agentToggleBusy: false,
 };
+
+function setAgentUI(enabled, message = null) {
+  state.agentRunning = !!enabled;
+
+  const agentStatusEl = document.getElementById("agent-status-val");
+  if (agentStatusEl) {
+    agentStatusEl.textContent = enabled ? "Aktif" : "Pasif";
+    agentStatusEl.style.color = enabled ? "var(--green)" : "var(--text3)";
+  }
+
+  const toggleIds = ["agent-toggle", "ctrl-agent-toggle"];
+  toggleIds.forEach(id => {
+    const t = document.getElementById(id);
+    if (t) {
+      t.checked = !!enabled;
+      t.disabled = state.agentToggleBusy;
+    }
+  });
+
+  const statusText = document.getElementById("ctrl-agent-status-text");
+  if (statusText) {
+    statusText.textContent = message || (enabled ? "✅ Ajan çalışıyor" : "⏹ Ajan durduruldu");
+    statusText.style.color = enabled ? "var(--green)" : "var(--text3)";
+  }
+
+  const headerBtn = document.getElementById("header-agent-btn");
+  if (headerBtn) {
+    if (state.agentToggleBusy) {
+      headerBtn.disabled = true;
+      headerBtn.textContent = "⏳ İŞLENİYOR";
+      headerBtn.className = "btn-secondary";
+    } else {
+      headerBtn.disabled = false;
+      headerBtn.textContent = enabled ? "■ DURDUR AJAN" : "▶ BAŞLAT";
+      headerBtn.className = enabled ? "btn-stop" : "btn-start";
+      headerBtn.onclick = enabled ? () => toggleAgent(false) : () => toggleAgent(true);
+    }
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 //  TABS
@@ -1624,13 +1666,16 @@ document.querySelectorAll(".tab").forEach(tab => {
 
 async function refreshStatus() {
   try {
+    const t0 = performance.now();
     const res = await fetch("/status/overview");
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
+    state.apiLatencyMs = Math.max(1, Math.round(performance.now() - t0));
+    state.lastStatusAt = new Date();
 
     // Connection
     document.getElementById("conn-dot").className = "dot online";
-    document.getElementById("conn-label").textContent = "Online";
+    document.getElementById("conn-label").textContent = `Online · ${state.apiLatencyMs}ms`;
 
     // Helper fonksiyonlar — null-safe DOM güncelleme
     const _s = (id) => document.getElementById(id);
@@ -1642,6 +1687,8 @@ async function refreshStatus() {
 
     // Stats — null-safe
     _set("balance-val", "$" + parseFloat(bal).toFixed(2));
+    const lastRef = state.lastStatusAt ? state.lastStatusAt.toLocaleTimeString("tr-TR") : "–";
+    _set("balance-start", `Son güncelleme: ${lastRef}`);
     const pnl = data.unrealized_pnl ?? data.total_pnl ?? 0;
     const pnlEl = _s("pnl-val");
     if (pnlEl) {
@@ -1680,21 +1727,7 @@ async function refreshStatus() {
     _set("agent-scan-interval", (se.scan_interval_min ?? 15) + " dk");
 
     if (se.running !== undefined) {
-      state.agentRunning = se.running;
-      const agentToggle = _s("agent-toggle");
-      if (agentToggle) agentToggle.checked = se.running;
-      const agentStatusEl = _s("agent-status-val");
-      if (agentStatusEl) {
-        agentStatusEl.textContent = se.running ? "Aktif" : "Pasif";
-        agentStatusEl.style.color = se.running ? "var(--green)" : "var(--text3)";
-      }
-      const ctrlToggle = _s("ctrl-agent-toggle");
-      if (ctrlToggle) ctrlToggle.checked = se.running;
-      const ctrlStatusText = _s("ctrl-agent-status-text");
-      if (ctrlStatusText) {
-        ctrlStatusText.textContent = se.running ? "✅ Ajan çalışıyor" : "⏹ Ajan durduruldu";
-        ctrlStatusText.style.color = se.running ? "var(--green)" : "var(--text3)";
-      }
+      setAgentUI(se.running);
     }
 
     // RL agent
@@ -1820,7 +1853,7 @@ function renderLastSignal(sig) {
 function renderSignalsTab() {
   const el = document.getElementById("signals-content");
   if (!state.signalHistory.length) {
-    el.innerHTML = '<div class="empty-state"><div>📊</div>Sinyal bekleniyor...<div style="font-size:10px;margin-top:8px;color:var(--text3)">Ajan 15 dakikada bir BTC, ETH, SOL, BNB, XRP'yi tarar</div></div>';
+    el.innerHTML = "<div class=\"empty-state\"><div>📊</div>Sinyal bekleniyor...<div style=\"font-size:10px;margin-top:8px;color:var(--text3)\">Ajan 15 dakikada bir BTC, ETH, SOL, BNB, XRP'yi tarar</div></div>";
     return;
   }
   el.innerHTML = state.signalHistory.map(sig => {
@@ -2366,13 +2399,13 @@ async function ctrlCloseAll() {
 
 function ctrlUpdateAgentPreview() {
   const scan    = document.getElementById("ctrl-scan-interval").value;
-  const eps     = document.getElementById("ctrl-epsilon").value;
+  const eps     = document.getElementById("ctrl-rl-eps").value;
   const minScore= document.getElementById("ctrl-min-score").value;
   const maxPos  = document.getElementById("ctrl-max-pos").value;
   const dayLoss = document.getElementById("ctrl-daily-loss").value;
-  const drawdown= document.getElementById("ctrl-max-drawdown").value;
+  const drawdown= document.getElementById("ctrl-drawdown").value;
   const rpt     = document.getElementById("ctrl-risk-per-trade").value;
-  const conLoss = document.getElementById("ctrl-consec-loss").value;
+  const conLoss = document.getElementById("ctrl-kill-switch").value;
   document.getElementById("ctrl-agent-preview").innerHTML =
     `Tarama: <span style="color:var(--cyan)">${scan} dk</span> &nbsp;|&nbsp; ` +
     `Epsilon: <span style="color:var(--yellow)">${eps}</span> &nbsp;|&nbsp; ` +
@@ -2405,13 +2438,13 @@ async function ctrlToggleAgent(enabled) {
 async function ctrlApplyAgentSettings() {
   const settings = {
     scan_interval_min: parseInt(document.getElementById("ctrl-scan-interval").value),
-    rl_epsilon:        parseFloat(document.getElementById("ctrl-epsilon").value),
+    rl_epsilon:        parseFloat(document.getElementById("ctrl-rl-eps").value),
     min_signal_score:  parseFloat(document.getElementById("ctrl-min-score").value),
     max_positions:     parseInt(document.getElementById("ctrl-max-pos").value),
     daily_max_loss_pct:parseFloat(document.getElementById("ctrl-daily-loss").value),
-    max_drawdown_pct:  parseFloat(document.getElementById("ctrl-max-drawdown").value),
+    max_drawdown_pct:  parseFloat(document.getElementById("ctrl-drawdown").value),
     risk_per_trade_pct:parseFloat(document.getElementById("ctrl-risk-per-trade").value),
-    kill_switch_consecutive_loss: parseInt(document.getElementById("ctrl-consec-loss").value),
+    kill_switch_consecutive_loss: parseInt(document.getElementById("ctrl-kill-switch").value),
   };
 
   // /status/agent endpoint'ine settings gönder
@@ -2428,6 +2461,10 @@ async function ctrlApplyAgentSettings() {
   }
 }
 
+async function ctrlSaveAgent() {
+  return ctrlApplyAgentSettings();
+}
+
 async function ctrlKillSwitch(activate) {
   const action = activate ? "aktifleştir" : "devre dışı bırak";
   if (!confirm(`Kill switch'i ${action}mak istediğinize emin misiniz?`)) return;
@@ -2439,8 +2476,10 @@ async function ctrlKillSwitch(activate) {
 
   const el = document.getElementById("kill-switch-status");
   if (activate) {
-    el.style.color = "var(--red)";
-    el.textContent = "🔴 Kill Switch AKTİF — Bot tüm işlemleri durdurdu";
+    if (el) {
+      el.style.color = "var(--red)";
+      el.textContent = "🔴 Kill Switch AKTİF — Bot tüm işlemleri durdurdu";
+    }
     showToast("🔴 Kill Switch aktifleştirildi!", "error");
     addLog("KILL SWITCH AKTİF — tüm işlemler durduruldu", "error");
     // Ajan toggle'ı kapat
@@ -2448,8 +2487,10 @@ async function ctrlKillSwitch(activate) {
     document.getElementById("ctrl-agent-status-text").textContent = "🔴 Kill switch aktif";
     document.getElementById("ctrl-agent-status-text").style.color = "var(--red)";
   } else {
-    el.style.color = "var(--green)";
-    el.textContent = "🟢 Kill Switch devre dışı — Bot normal çalışmaya devam edebilir";
+    if (el) {
+      el.style.color = "var(--green)";
+      el.textContent = "🟢 Kill Switch devre dışı — Bot normal çalışmaya devam edebilir";
+    }
     showToast("🟢 Kill Switch devre dışı bırakıldı", "success");
     addLog("Kill switch devre dışı bırakıldı (manuel)", "warn");
   }
@@ -2466,7 +2507,12 @@ document.querySelectorAll(".tab").forEach(tab => {
 });
 
 function copyWebhookUrl() {
-  const url = document.getElementById("webhook-url").textContent;
+  const el = document.getElementById("webhook-url");
+  if (!el) {
+    showToast("Webhook URL alanı bulunamadı", "warn");
+    return;
+  }
+  const url = el.textContent;
   navigator.clipboard.writeText(url).then(() => showToast("📋 URL kopyalandı", "success"));
 }
 
@@ -2479,17 +2525,22 @@ function copyWebhookJson() {
 // ═══════════════════════════════════════════════════════════
 
 async function toggleAgent(enabled) {
+  if (state.agentToggleBusy) return;
+  state.agentToggleBusy = true;
+  setAgentUI(state.agentRunning, "⏳ Ajan durumu güncelleniyor...");
+
   const result = await apiFetch("/status/agent", {
     method: "POST",
     body: JSON.stringify({ enabled }),
   });
-  const agentStatusEl = document.getElementById("agent-status-val");
-  if (result.ok || true) { // optimistic
-    state.agentRunning = enabled;
-    agentStatusEl.textContent = enabled ? "Aktif" : "Pasif";
-    agentStatusEl.style.color = enabled ? "var(--green)" : "var(--text3)";
+  state.agentToggleBusy = false;
+
+  if (result.ok) {
+    setAgentUI(enabled);
     showToast(enabled ? "🤖 Otomatik ajan aktifleştirildi" : "⏹ Ajan durduruldu", enabled ? "success" : "info");
     addLog(enabled ? "Otomatik ajan başlatıldı" : "Otomatik ajan durduruldu", enabled ? "ok" : "warn");
+  } else {
+    setAgentUI(state.agentRunning, "⚠️ Ajan durumu değiştirilemedi");
   }
 }
 
