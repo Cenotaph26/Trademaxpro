@@ -225,6 +225,7 @@ class AutoSignalEngine:
         self.s = settings
         self._running = False
         self.last_signal: Optional[dict] = None
+        self.signal_history: list = []  # tüm sinyal geçmişi (max 200)
         self.signal_count = 0
         self.scan_interval = 5 * 60   # 5 dakika
 
@@ -547,6 +548,12 @@ class AutoSignalEngine:
             "details": score.details,
         }
 
+        # Geçmişe ekle
+        if self.last_signal:
+            self.signal_history.insert(0, self.last_signal)
+            if len(self.signal_history) > 200:
+                self.signal_history.pop()
+
         if isinstance(result, dict) and result.get("ok"):
             logger.info(f"✅ İşlem açıldı: {result}")
         else:
@@ -563,6 +570,7 @@ class AutoSignalEngine:
             "signal_count": self.signal_count,
             "trade_count": self.signal_count,
             "last_signal": self.last_signal,
+            "signal_history": self.signal_history[:100],
             "cooldowns": {
                 sym: self._last_trade_time[sym].isoformat()
                 for sym in self._last_trade_time

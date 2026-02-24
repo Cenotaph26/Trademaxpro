@@ -531,3 +531,118 @@ if __name__ == "__main__":
         log_level="info",
         reload=False,
     )
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+#  EKSİK ENDPOINT'LER — dashboard uyumluluğu
+# ════════════════════════════════════════════════════════════════════════════════
+
+import time as _time
+
+# Market cache (3dk TTL — Binance rate limit koruma)
+_market_cache: dict = {"prices": {}, "ts": 0}
+_MARKET_TTL = 180  # saniye
+
+
+@app.get("/status/market")
+async def status_market(request: Request):
+    """
+    Tüm Binance Futures USDT çiftlerinin fiyat + değişim bilgisi.
+    Dashboard'un coin grid'ini doldurur.
+    Format: { ok: true, prices: { "BTCUSDT": { price, change, high, low, quoteVolume } } }
+    """
+    global _market_cache
+    now = _time.time()
+
+    # Cache geçerliyse direkt dön
+    if _market_cache["prices"] and (now - _market_cache["ts"]) < _MARKET_TTL:
+        return {"ok": True, "prices": _market_cache["prices"], "cached": True,
+                "count": len(_market_cache["prices"])}
+
+    try:
+        dc = request.app.state.data_client
+        if not hasattr(dc, "exchange") or not dc.exchange:
+            return {"ok": False, "prices": {}, "reason": "exchange yok"}
+
+        # Binance fapi/v1/ticker/24hr — tüm semboller tek seferde
+        try:
+            tickers = await dc.exchange.fetch_tickers()
+        except Exception as e:
+            logger.warning(f"fetch_tickers hatası: {e}")
+            # Cache varsa eski veriyi dön
+            if _market_cache["prices"]:
+                return {"ok": True, "prices": _market_cache["prices"], "cached": True, "stale": True}
+            return {"ok": False, "prices": {}, "reason": str(e)}
+
+        prices = {}
+        for sym, t in tickers.items():
+            # Sadece USDT perpetual futures
+            if not (sym.endswith("/USDT") or sym.endswith(":USDT")):
+                continue
+            # Sembol normalize: BTC/USDT:USDT → BTCUSDT
+            clean = sym.replace("/", "").replace(":USDT", "").replace(":BUSD", "")
+            last  = float(t.get("last")  or t.get("close") or 0)
+            chg   = float(t.get("percentage") or t.get("change") or 0)
+            high  = float(t.get("high")  or 0)
+            low   = float(t.get("low")   or 0)
+            vol   = float(t.get("quoteVolume") or t.get("baseVolume") or 0)
+            if last > 0:
+                prices[clean] = {
+                    "price":       last,
+                    "change":      round(chg, 4),
+                    "high":        high,
+                    "low":         low,
+                    "quoteVolume": vol,
+                }
+
+        if prices:
+            _market_cache = {"prices": prices, "ts": now}
+            logger.info(f"Market cache güncellendi: {len(prices)} coin")
+
+        return {"ok": True, "prices": prices, "count": len(prices)}
+
+    except Exception as e:
+        logger.error(f"/status/market hatası: {e}", exc_info=True)
+        if _market_cache["prices"]:
+            return {"ok": True, "prices": _market_cache["prices"], "cached": True, "stale": True}
+        return {"ok": False, "prices": {}, "reason": str(e)}
+
+
+@app.get("/status/signals")
+async def status_signals(request: Request, limit: int = Query(100)):
+    """
+    Sinyal geçmişini döner. Dashboard'un SİNYALLER sekmesini doldurur.
+    """
+    try:
+        se = request.app.state.signal_engine
+        status = {}
+        try:
+            status = se.get_status()
+        except Exception:
+            pass
+        signals = status.get("signal_history", [])
+        # En yeni önce
+        signals_sorted = sorted(signals, key=lambda x: x.get("time", ""), reverse=True)
+        return {"ok": True, "signals": signals_sorted[:limit], "total": len(signals_sorted)}
+    except Exception as e:
+        logger.error(f"/status/signals hatası: {e}")
+        return {"ok": True, "signals": [], "total": 0}
+
+
+@app.get("/status/positions")
+async def status_positions(request: Request):
+    """
+    Pozisyonlar için kısa yol fallback (dashboard'un /execution/positions/live'a alternatifi).
+    """
+    try:
+        dc = request.app.state.data_client
+        if not dc.exchange or not getattr(dc, "_auth_ok", False):
+            # Auth yoksa risk engine'den çek
+            re = request.app.state.risk_engine
+            positions = _positions_safe(re)
+            return {"ok": True, "positions": positions, "source": "risk_engine"}
+        # Binance'den canlı çek
+        from fastapi import Request as _Req
+        return await live_positions(request)
+    except Exception as e:
+        return {"ok": False, "positions": [], "reason": str(e)}
