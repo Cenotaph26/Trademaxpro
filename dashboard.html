@@ -792,12 +792,14 @@ async function poll(){
       loadRiskSettings(ov.risk||{});
       firstPoll=false;
     }
-    // Her poll döngüsünde canlı fiyatları çek — coins objesi direkt market verisinden gelir
+    // Her poll döngüsünde canlı fiyatları çek — coins objesi tamamen market verisinden gelir
     const mkt=await apiFetch('/status/market');
     if(mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){
-      // coins objesini tamamen market verisinden yenile — format sorunu yok
+      // coins objesini TAMAMEN sıfırla ve market verisinden yeniden doldur
+      // Bu sayede eski format (price:0) coinler listede kalmaz
+      const newCoins={};
       Object.entries(mkt.prices).forEach(([sym,d])=>{
-        coins[sym]={
+        newCoins[sym]={
           price:       parseFloat(d.price)||0,
           change:      parseFloat(d.change)||0,
           high:        parseFloat(d.high)||0,
@@ -805,6 +807,9 @@ async function poll(){
           quoteVolume: parseFloat(d.quoteVolume)||0,
         };
       });
+      // Eski coins objesini yenisiyle değiştir
+      Object.keys(coins).forEach(k=>delete coins[k]);
+      Object.assign(coins,newCoins);
       renderCoins();
       if(!tickerBuilt){buildTicker();}else{updateTicker();}
     }else{updateTicker();}
