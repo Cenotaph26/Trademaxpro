@@ -1199,7 +1199,58 @@ initHover();poll();loadPositions();loadSignalHistory();
 setInterval(poll,2000);
 setInterval(loadPositions,5000);
 setInterval(loadSignalHistory,30000);
-// Sayfa açılışında hemen overview çek (trade history dahil)
+
+// Kalici trade gecmisini SQLite'den yukle (sayfa yenilemede kaybolmaz)
+async function loadPersistentHistory(){
+  try{
+    const h=await apiFetch('/status/history?limit=500');
+    if(h&&h.ok&&h.trades&&h.trades.length>0){
+      // Backend formatini frontend formatina donustur
+      const trades=h.trades.map(t=>({
+        time: t.ts ? t.ts.substring(11,19) : '--',
+        symbol: t.symbol||'--',
+        side: t.side||'--',
+        pnl: parseFloat(t.pnl)||0,
+        strategy: t.strategy||'--',
+        slippage: parseFloat(t.slippage_pct)||0,
+      }));
+      D.history=trades;
+      buildHistory();
+      document.getElementById('hist-cnt').textContent=trades.length;
+      console.log('Kalici gecmis yuklendi:',trades.length,'trade');
+    }
+    // Tum zamanli istatistikleri goster
+    if(h&&h.stats){
+      const s=h.stats;
+      if(s.trade_count>0){
+        const wrEl=document.getElementById('s-wr');
+        if(wrEl)wrEl.textContent=((s.winrate||0)*100).toFixed(1)+'%';
+        const wlEl=document.getElementById('s-wl');
+        if(wlEl)wlEl.textContent='W:'+Math.round((s.winrate||0)*s.trade_count)+' / L:'+Math.round((1-(s.winrate||0))*s.trade_count);
+      }
+    }
+    // Storage durumu
+    const st=await apiFetch('/status/storage');
+    if(st&&st.ok){
+      const isPersist=st.is_persistent;
+      const badge=document.createElement('span');
+      badge.style.cssText='font-size:8px;padding:2px 5px;border-radius:3px;margin-left:6px;';
+      badge.style.background=isPersist?'#00e87640':'#ff444440';
+      badge.style.color=isPersist?'#00e876':'#ff4444';
+      badge.title=isPersist?('Kalici: '+st.persist_dir):('UYARI: /tmp kullaniliyor! Railway Volume ekle: /data');
+      badge.textContent=isPersist?'VOLUME':'TMP';
+      const logTitle=document.querySelector('.ph-title');
+      if(logTitle&&!logTitle.querySelector('.vol-badge')){
+        badge.className='vol-badge';
+        logTitle.appendChild(badge);
+      }
+    }
+  }catch(e){console.warn('History yuklenemedi:',e);}
+}
+loadPersistentHistory();
+setInterval(loadPersistentHistory,60000); // Her dakika guncelle
+
+// Sayfa acilisinda hemen overview cek (trade history dahil)
 setTimeout(async()=>{
   const ov=await apiFetch('/status/overview');
   if(ov&&ov.history&&ov.history.length>0){D.history=ov.history;buildHistory();}

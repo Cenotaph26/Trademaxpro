@@ -29,60 +29,51 @@ from api.execution import router as execution_router
 from signal_engine import AutoSignalEngine
 from utils.logger import setup_logger
 from utils import telegram as tg
+from persistence import init_db, save_log_entry, load_logs, get_storage_info, load_trades, get_trade_stats, load_daily_stats
 
 logger = setup_logger(__name__)
 
-# ── In-memory log buffer ──────────────────────────────────────────────────────
+# ── Veritabani baslat ─────────────────────────────────────────────────────────
+init_db()
+
+# ── In-memory log buffer (hiz) + SQLite (kalicilik) ──────────────────────────
 _log_buffer: list = []
 MAX_LOGS = 500
 
-
 import os, json, threading
-_LOG_FILE = "/tmp/bot_logs.jsonl"   # Railway'de /tmp kalıcı değil ama restart'a kadar saklar
 
 class _BufferHandler(logging.Handler):
-    """
-    Root logger'a bağlı buffer — tüm logları yakalar.
-    DÜZELTME: formatTime() Handler'da yok → datetime.now() kullan.
-    """
-    _fmt = logging.Formatter("%(message)s")  # sadece mesaj formatı
+    _fmt = logging.Formatter("%(message)s")
 
     def emit(self, record):
         try:
-            # formatTime DÜZELTME: Formatter üzerinden çağır
-            t = self._fmt.formatTime(record, "%H:%M:%S")
+            t   = self._fmt.formatTime(record, "%H:%M:%S")
             msg = record.getMessage()
-            # Çok uzun mesajları kırp
             if len(msg) > 500:
                 msg = msg[:497] + "..."
-            entry = {
-                "time":    t,
-                "level":   record.levelname,  # INFO / WARNING / ERROR
-                "message": msg,
-                "name":    record.name,
-            }
+            entry = {"time": t, "level": record.levelname, "message": msg, "name": record.name}
             _log_buffer.append(entry)
             if len(_log_buffer) > MAX_LOGS:
                 _log_buffer.pop(0)
-            # Dosyaya da yaz (thread-safe)
-            try:
-                with _log_file_lock:
-                    with open(_LOG_FILE, "a", encoding="utf-8") as lf:
-                        lf.write(json.dumps(entry, ensure_ascii=False) + "\n")
-                    if os.path.getsize(_LOG_FILE) > 5 * 1024 * 1024:  # 5MB
-                        with open(_LOG_FILE, "r", encoding="utf-8") as lf2:
-                            lines = lf2.readlines()[-MAX_LOGS:]
-                        with open(_LOG_FILE, "w", encoding="utf-8") as lf3:
-                            lf3.writelines(lines)
-            except Exception:
-                pass
+            # SQLite kalici kayit
+            save_log_entry(t, record.levelname, record.name, msg)
         except Exception:
-            pass  # Hiçbir zaman log sisteminin kendisi çökmemeli
+            pass
 
-_log_file_lock = threading.Lock()
-
-# Startup'ta mevcut log dosyasını memory'ye yükle
 def _load_persisted_logs():
+    try:
+        rows = load_logs(limit=200)
+        for r in reversed(rows):
+            _log_buffer.append({
+                "time":    r.get("time", ""),
+                "level":   r.get("level", "INFO"),
+                "message": r.get("message", ""),
+                "name":    r.get("name", ""),
+            })
+    except Exception:
+        pass
+
+_load_persisted_logs():
     try:
         if os.path.exists(_LOG_FILE):
             with open(_LOG_FILE, "r", encoding="utf-8") as lf:
@@ -381,30 +372,56 @@ async def status_symbols(request: Request):
 
 
 @app.get("/status/logs")
-async def status_logs(limit: int = Query(200)):
-    """Memory buffer + dosya birleşimi ile kalıcı loglar döner."""
-    # Eğer buffer boşsa test log ekle (bağlantı doğrulama)
+async def status_logs(limit: int = Query(200), level: Optional[str] = Query(None)):
+    """Kalici SQLite + memory buffer birlesimi ile loglar doner. Restart sonrasi gecmis korunur."""
     if not _log_buffer:
-        logger.info("📋 Log buffer aktif - sistem çalışıyor")
+        logger.info("📋 Log sistemi aktif — kalici SQLite hafiza")
+    # Memory buffer yeterliyse hizlica don
     combined = list(_log_buffer)
-    # Dosyadan eksikleri tamamla (memory sıfırlandıysa)
-    if len(combined) < 50 and os.path.exists(_LOG_FILE):
+    # Ek gecmis icin SQLite'e bak
+    if len(combined) < limit:
         try:
-            with open(_LOG_FILE, "r", encoding="utf-8") as lf:
-                lines = lf.readlines()
-            for line in lines[-limit:]:
-                try:
-                    entry = json.loads(line.strip())
-                    if not any(e.get("time") == entry.get("time") and e.get("message") == entry.get("message")
-                               for e in combined):
-                        combined.append(entry)
-                except Exception:
-                    pass
-            combined.sort(key=lambda x: x.get("time", ""))
+            db_logs = load_logs(limit=limit, level_filter=level)
+            seen = {(e.get("time"), e.get("message")) for e in combined}
+            for r in db_logs:
+                key = (r.get("time"), r.get("message"))
+                if key not in seen:
+                    combined.append(r)
+                    seen.add(key)
         except Exception:
             pass
-    logs = combined[-limit:] if limit else combined
+    if level:
+        combined = [e for e in combined if e.get("level", "").upper() == level.upper()]
+    logs = combined[-limit:]
     return {"ok": True, "logs": list(reversed(logs)), "total": len(combined)}
+
+
+@app.get("/status/history")
+async def status_history(request: Request, limit: int = Query(500)):
+    """Tum zamanli trade gecmisi — SQLite'den. Sayfa yenilemede kaybolmaz."""
+    try:
+        trades = load_trades(limit=limit)
+        stats  = get_trade_stats()
+        daily  = load_daily_stats(days=30)
+        return {
+            "ok": True,
+            "trades": trades,
+            "stats":  stats,
+            "daily":  daily,
+            "total":  len(trades),
+        }
+    except Exception as e:
+        return {"ok": False, "trades": [], "stats": {}, "daily": [], "reason": str(e)}
+
+
+@app.get("/status/storage")
+async def status_storage():
+    """Depolama bilgisi — Railway Volume durumu ve boyutu."""
+    try:
+        info = get_storage_info()
+        return {"ok": True, **info}
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
 
 
 @app.post("/status/agent")

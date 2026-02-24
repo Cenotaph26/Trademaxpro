@@ -1,12 +1,7 @@
 """
-Risk Engine — Bot'un kalkanı.
-Tüm stratejiler buradan geçmeden emir atamaz.
-
-v9 DÜZELTMELERİ:
-- MAX_SAME_DIRECTION kontrolü kaldırıldı (farklı coinde hem LONG hem SHORT serbestçe açılabilir)
-- MAX_OPEN_POSITIONS varsayılanı artırıldı (settings'ten gelir, ama kontrol daha esnek)
-- update_position_counts: Binance'den canlı veriyle senkronize
-- Aynı sembolde zaten o yönde pozisyon varsa engelle (isteğe bağlı, pasif)
+Risk Engine v12 — Kalıcı Trade Geçmişi.
+Tüm trade kayıtları artık SQLite'e yazılıyor.
+Restart sonrası istatistikler sıfırlanmıyor.
 """
 import asyncio
 import logging
@@ -14,6 +9,8 @@ from datetime import datetime, date
 from dataclasses import dataclass, field
 from typing import List, Optional
 from enum import Enum
+
+from persistence import save_trade, load_trades, update_daily_stats
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +37,7 @@ class TradeRecord:
     side: str
     strategy: str
     slippage_pct: float = 0.0
+    symbol: str = ""
 
 
 @dataclass
@@ -57,8 +55,7 @@ class RiskState:
     short_count: int = 0
     open_count: int = 0
     current_mode: RiskMode = RiskMode.NORMAL
-    # Sembol → yön haritası (aynı sembolde çift pozisyon önlemek için)
-    open_symbols: dict = field(default_factory=dict)  # {symbol: "LONG" | "SHORT"}
+    open_symbols: dict = field(default_factory=dict)
 
 
 class RiskEngine:
@@ -66,8 +63,27 @@ class RiskEngine:
         self.s = settings
         self.state = RiskState()
         self._lock = asyncio.Lock()
+        self._load_history_from_db()
 
-    # ─── Kill switch ──────────────────────────────────────────────
+    def _load_history_from_db(self):
+        """Başlangıçta son 200 trade'i DB'den yükle."""
+        try:
+            rows = load_trades(limit=200)
+            for r in reversed(rows):  # eskiden yeniye sırala
+                self.state.trade_history.append(TradeRecord(
+                    pnl=float(r.get("pnl", 0)),
+                    timestamp=datetime.fromisoformat(r["ts"]) if r.get("ts") else datetime.utcnow(),
+                    side=r.get("side", ""),
+                    strategy=r.get("strategy", ""),
+                    slippage_pct=float(r.get("slippage_pct", 0)),
+                    symbol=r.get("symbol", ""),
+                ))
+            if self.state.trade_history:
+                logger.info(f"📊 {len(self.state.trade_history)} trade DB'den yüklendi")
+        except Exception as e:
+            logger.warning(f"Trade geçmişi yüklenemedi: {e}")
+
+    # ─── Kill switch ───────────────────────────────────────────────
 
     def activate_kill_switch(self, reason: KillSwitchReason):
         if not self.state.kill_switch_active:
@@ -80,80 +96,51 @@ class RiskEngine:
         self.state.kill_switch_reason = None
         logger.warning("Kill switch devre dışı bırakıldı (manuel)")
 
-    # ─── Pre-trade checks ─────────────────────────────────────────
+    # ─── Pre-trade checks ──────────────────────────────────────────
 
-    def can_trade(self, side: str, symbol: str = "") -> tuple[bool, str]:
-        """
-        Bir emir atılabilir mi? (True/False, neden)
-
-        Kontroller:
-        1. Kill switch
-        2. Günlük max kayıp
-        3. Max açık pozisyon (toplam)
-        4. Max drawdown
-        
-        KALDIRILDI:
-        - MAX_SAME_DIRECTION: Farklı coinlerde hem LONG hem SHORT açılabilir
-        - Aynı sembol-yön kontrolü pasif (override mümkün)
-        """
+    def can_trade(self, side: str, symbol: str = "") -> tuple:
         s = self.state
-
         if s.kill_switch_active:
             return False, f"Kill switch aktif: {s.kill_switch_reason.value}"
 
-        # Günlük reset
         if s.daily_date != date.today():
             s.daily_loss = 0.0
             s.daily_date = date.today()
             s.consecutive_losses = 0
 
-        # Günlük max loss
         if s.current_equity > 0:
             daily_loss_pct = (s.daily_loss / s.current_equity) * 100
             if daily_loss_pct >= self.s.DAILY_MAX_LOSS_PCT:
                 return False, f"Günlük max kayıp aşıldı: {daily_loss_pct:.2f}%"
 
-        # Max open positions — sadece toplam limit (yön limiti YOK)
         max_pos = getattr(self.s, "MAX_OPEN_POSITIONS", 10)
         if s.open_count >= max_pos:
             return False, f"Max açık pozisyon: {s.open_count}/{max_pos}"
 
-        # Drawdown
         if s.current_drawdown_pct >= self.s.MAX_DRAWDOWN_PCT:
             return False, f"Max drawdown aşıldı: {s.current_drawdown_pct:.2f}%"
 
         return True, "OK"
 
     def get_leverage(self, mode: RiskMode, atr_pct: float = 0.0) -> int:
-        """Volatiliteye ve moda göre dinamik kaldıraç."""
         base = {
             RiskMode.CONSERVATIVE: self.s.LEV_CONSERVATIVE,
             RiskMode.NORMAL: self.s.LEV_NORMAL,
             RiskMode.AGGRESSIVE: self.s.LEV_AGGRESSIVE,
         }[mode]
-
-        if atr_pct > 0.03:
-            return max(1, base - 2)
-        elif atr_pct > 0.015:
-            return max(1, base - 1)
+        if atr_pct > 0.03:    return max(1, base - 2)
+        elif atr_pct > 0.015: return max(1, base - 1)
         return base
 
-    def calculate_position_size(
-        self, equity: float, entry: float, stop_loss: float, leverage: int
-    ) -> float:
-        """
-        Risk-per-trade tabanlı pozisyon büyüklüğü.
-        size = (equity * risk_pct) / (|entry - sl| / entry)
-        """
+    def calculate_position_size(self, equity, entry, stop_loss, leverage):
         risk_amount = equity * (self.s.RISK_PER_TRADE_PCT / 100)
         sl_distance_pct = abs(entry - stop_loss) / entry if entry > 0 else 0.015
         if sl_distance_pct < 0.001:
             sl_distance_pct = 0.001
         notional = risk_amount / sl_distance_pct
-        quantity = notional / entry if entry > 0 else 0
-        return round(quantity, 6)
+        return round(notional / entry if entry > 0 else 0, 6)
 
-    # ─── Post-trade update ────────────────────────────────────────
+    # ─── Post-trade update ─────────────────────────────────────────
 
     async def record_trade(self, record: TradeRecord):
         async with self._lock:
@@ -171,6 +158,24 @@ class RiskEngine:
             if record.slippage_pct > self.s.KILL_SWITCH_SLIPPAGE_PCT:
                 self.activate_kill_switch(KillSwitchReason.SLIPPAGE)
 
+            # ── Kalıcı kayıt ──
+            try:
+                save_trade(
+                    pnl=record.pnl,
+                    side=record.side,
+                    strategy=record.strategy,
+                    slippage_pct=record.slippage_pct,
+                    symbol=getattr(record, "symbol", ""),
+                )
+                update_daily_stats(
+                    pnl=record.pnl,
+                    is_win=record.pnl > 0,
+                    drawdown_pct=self.state.current_drawdown_pct,
+                    peak_equity=self.state.peak_equity,
+                )
+            except Exception as e:
+                logger.warning(f"Trade DB kayıt hatası: {e}")
+
     async def update_equity(self, equity: float):
         async with self._lock:
             self.state.current_equity = equity
@@ -183,12 +188,7 @@ class RiskEngine:
             if self.state.current_drawdown_pct >= self.s.MAX_DRAWDOWN_PCT:
                 self.activate_kill_switch(KillSwitchReason.MAX_DRAWDOWN)
 
-    def update_position_counts(self, long_count: int, short_count: int,
-                                open_symbols: dict = None):
-        """
-        Canlı pozisyon sayılarını güncelle.
-        open_symbols: {symbol: "LONG"|"SHORT"} — sembol bazlı takip için
-        """
+    def update_position_counts(self, long_count, short_count, open_symbols=None):
         self.state.long_count = long_count
         self.state.short_count = short_count
         self.state.open_count = long_count + short_count
@@ -201,16 +201,16 @@ class RiskEngine:
         h = self.state.trade_history
         if not h:
             return {"winrate": 0, "expectancy": 0, "sharpe": 0, "trade_count": 0}
-        wins = [t for t in h if t.pnl > 0]
+        wins   = [t for t in h if t.pnl > 0]
         losses = [t for t in h if t.pnl <= 0]
-        winrate = len(wins) / len(h)
-        avg_win = sum(t.pnl for t in wins) / (len(wins) or 1)
+        winrate  = len(wins) / len(h)
+        avg_win  = sum(t.pnl for t in wins) / (len(wins) or 1)
         avg_loss = abs(sum(t.pnl for t in losses) / (len(losses) or 1))
         expectancy = winrate * avg_win - (1 - winrate) * avg_loss
         pnls = [t.pnl for t in h[-50:]]
         if len(pnls) > 1:
             mean_p = sum(pnls) / len(pnls)
-            std_p = (sum((p - mean_p) ** 2 for p in pnls) / len(pnls)) ** 0.5
+            std_p  = (sum((p - mean_p) ** 2 for p in pnls) / len(pnls)) ** 0.5
             sharpe = mean_p / (std_p + 1e-9) * (252 ** 0.5)
         else:
             sharpe = 0
@@ -223,8 +223,6 @@ class RiskEngine:
             "daily_loss": round(self.state.daily_loss, 2),
             "drawdown_pct": round(self.state.current_drawdown_pct, 2),
         }
-
-    # ─── Monitor loop ─────────────────────────────────────────────
 
     async def monitor_loop(self):
         logger.info("Risk monitor başlatıldı")

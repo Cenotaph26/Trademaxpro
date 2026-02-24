@@ -1,30 +1,24 @@
 """
-RL Agent — Meta-controller.
-"Hangi strateji + parametre + risk modu" seçer.
-Emir atmaz → Strategy Engine'e karar verir.
-
-Algoritma: Tabular Q-Learning (başlangıç için basit, production'da DQN'e geç).
-State space discretize edilmiş → yönetilebilir Q tablosu.
+RL Agent — Meta-controller (v12 — Kalıcı Hafıza).
+Artık Q-table ve epsilon Railway Volume'a kaydediliyor.
+Restart sonrası öğrenme kaldığı yerden devam eder.
 """
 import asyncio
 import logging
-import pickle
-import os
 import random
 from collections import deque
 from dataclasses import dataclass
 from typing import Optional
-from datetime import datetime
+
+from persistence import save_rl_model, load_rl_model
 
 logger = logging.getLogger(__name__)
 
-# ─── Action Space ─────────────────────────────────────────────────────────────
 STRATEGIES = ["DCA", "GRID", "SMART"]
 RISK_MODES = ["conservative", "normal", "aggressive"]
 LEVERAGE_CAPS = [2, 3, 5]
 TRADE_ALLOWED = [0, 1]
 
-# Flatten action: (strategy_idx, risk_mode_idx, leverage_idx, trade_allowed)
 ACTIONS = [
     (s, r, l, t)
     for t in TRADE_ALLOWED
@@ -37,9 +31,9 @@ N_ACTIONS = len(ACTIONS)
 
 @dataclass
 class AgentDecision:
-    strategy: str           # DCA / GRID / SMART
-    risk_mode: str          # conservative / normal / aggressive
-    leverage_cap: int       # 2 / 3 / 5
+    strategy: str
+    risk_mode: str
+    leverage_cap: int
     trade_allowed: bool
     confidence: float = 1.0
     reason: str = ""
@@ -54,41 +48,20 @@ class Experience:
     done: bool
 
 
-def discretize_state(
-    regime: str,
-    atr_pct: float,
-    funding_rate: float,
-    winrate_last10: float,
-    drawdown_pct: float,
-    daily_loss_pct: float,
-) -> tuple:
-    """State'i discretize et → Q tablosu için hashable key."""
-    regime_d = {"trend": 0, "range": 1, "volatile": 2, "unknown": 1}.get(regime, 1)
-
-    if atr_pct < 0.005:
-        atr_d = 0
-    elif atr_pct < 0.015:
-        atr_d = 1
-    elif atr_pct < 0.03:
-        atr_d = 2
-    else:
-        atr_d = 3
-
+def discretize_state(regime, atr_pct, funding_rate, winrate_last10, drawdown_pct, daily_loss_pct):
+    regime_d  = {"trend": 0, "range": 1, "volatile": 2, "unknown": 1}.get(regime, 1)
+    atr_d     = 0 if atr_pct < 0.005 else (1 if atr_pct < 0.015 else (2 if atr_pct < 0.03 else 3))
     funding_d = 0 if abs(funding_rate) < 0.002 else (1 if funding_rate < 0 else 2)
-
     winrate_d = 0 if winrate_last10 < 0.4 else (1 if winrate_last10 < 0.6 else 2)
-
-    dd_d = 0 if drawdown_pct < 1 else (1 if drawdown_pct < 3 else 2)
-
-    dl_d = 0 if daily_loss_pct < 0.5 else (1 if daily_loss_pct < 1.5 else 2)
-
+    dd_d      = 0 if drawdown_pct < 1 else (1 if drawdown_pct < 3 else 2)
+    dl_d      = 0 if daily_loss_pct < 0.5 else (1 if daily_loss_pct < 1.5 else 2)
     return (regime_d, atr_d, funding_d, winrate_d, dd_d, dl_d)
 
 
 class RLAgent:
     def __init__(self, settings):
         self.s = settings
-        self.q_table: dict = {}   # state -> [Q values per action]
+        self.q_table: dict = {}
         self.memory: deque = deque(maxlen=settings.RL_BUFFER_SIZE)
         self.epsilon = settings.RL_EPSILON
         self.lr = settings.RL_LEARNING_RATE
@@ -100,8 +73,6 @@ class RLAgent:
         self._last_state: Optional[tuple] = None
         self._last_action_idx: Optional[int] = None
         self._running = False
-
-        # Bağımlılıklar (inject edilecek)
         self._data_client = None
         self._risk_engine = None
 
@@ -110,165 +81,119 @@ class RLAgent:
         self._risk_engine = risk_engine
 
     async def load_model(self):
-        path = self.s.RL_MODEL_PATH
-        if os.path.exists(path):
-            try:
-                with open(path, "rb") as f:
-                    saved = pickle.load(f)
-                    self.q_table = saved.get("q_table", {})
-                    self.epsilon = saved.get("epsilon", self.epsilon)
-                logger.info(f"RL model yüklendi: {path} ({len(self.q_table)} state)")
-            except Exception as e:
-                logger.warning(f"Model yüklenemedi: {e}, sıfırdan başlanıyor")
+        saved = load_rl_model()
+        if saved:
+            self.q_table = saved.get("q_table", {})
+            self.epsilon  = saved.get("epsilon", self.epsilon)
+            logger.info(f"🧠 RL model yüklendi: {len(self.q_table)} state | ε={self.epsilon:.4f}")
         else:
-            logger.info("RL model bulunamadı, sıfırdan başlanıyor")
+            logger.info("🧠 RL model yok, sıfırdan başlanıyor")
 
     async def save_model(self):
-        os.makedirs(os.path.dirname(self.s.RL_MODEL_PATH), exist_ok=True)
-        with open(self.s.RL_MODEL_PATH, "wb") as f:
-            pickle.dump({"q_table": self.q_table, "epsilon": self.epsilon}, f)
-        logger.debug("RL model kaydedildi")
+        try:
+            save_rl_model(
+                q_table=self.q_table,
+                epsilon=self.epsilon,
+                episode_count=self.episode_count,
+                total_reward=self.total_reward,
+            )
+            logger.debug(f"RL model kaydedildi ({len(self.q_table)} state)")
+        except Exception as e:
+            logger.warning(f"RL kayıt hatası: {e}")
 
-    def _get_q(self, state: tuple) -> list:
+    def _get_q(self, state):
         if state not in self.q_table:
             self.q_table[state] = [0.0] * N_ACTIONS
         return self.q_table[state]
 
-    def _build_state(self) -> tuple:
+    def _build_state(self):
         if not self._data_client or not self._risk_engine:
-            return (1, 1, 0, 1, 0, 0)  # default range state
-
+            return (1, 1, 0, 1, 0, 0)
         ds = self._data_client.state
         rs = self._risk_engine.state
-        stats = self._risk_engine.get_stats()
-
         atr_pct = ds.atr_14 / (ds.mark_price + 1e-9)
         daily_loss_pct = (rs.daily_loss / (rs.current_equity + 1e-9)) * 100
-
-        # winrate son 10 işlem
         hist = rs.trade_history[-10:]
-        if hist:
-            winrate10 = sum(1 for t in hist if t.pnl > 0) / len(hist)
-        else:
-            winrate10 = 0.5
-
-        return discretize_state(
-            regime=ds.regime,
-            atr_pct=atr_pct,
-            funding_rate=ds.funding_rate,
-            winrate_last10=winrate10,
-            drawdown_pct=rs.current_drawdown_pct,
-            daily_loss_pct=daily_loss_pct,
-        )
+        winrate10 = sum(1 for t in hist if t.pnl > 0) / len(hist) if hist else 0.5
+        return discretize_state(ds.regime, atr_pct, ds.funding_rate, winrate10,
+                                 rs.current_drawdown_pct, daily_loss_pct)
 
     def decide(self) -> AgentDecision:
-        """ε-greedy politikası ile karar ver."""
         state = self._build_state()
         self._last_state = state
-
         if random.random() < self.epsilon:
-            # Keşif (exploration)
             action_idx = random.randrange(N_ACTIONS)
         else:
-            # Sömürü (exploitation)
             q_vals = self._get_q(state)
             action_idx = max(range(N_ACTIONS), key=lambda i: q_vals[i])
-
         self._last_action_idx = action_idx
         s_idx, r_idx, l_idx, t = ACTIONS[action_idx]
-
         return AgentDecision(
-            strategy=STRATEGIES[s_idx],
-            risk_mode=RISK_MODES[r_idx],
-            leverage_cap=LEVERAGE_CAPS[l_idx],
-            trade_allowed=bool(t),
+            strategy=STRATEGIES[s_idx], risk_mode=RISK_MODES[r_idx],
+            leverage_cap=LEVERAGE_CAPS[l_idx], trade_allowed=bool(t),
             confidence=1.0 - self.epsilon,
         )
 
-    def compute_reward(
-        self,
-        net_pnl: float,
-        drawdown_increment: float,
-        volatility: float,
-        overtrading: bool,
-        sharpe_increment: float,
-    ) -> float:
-        """Risk-adjusted reward."""
-        reward = (
-            net_pnl
-            - 2.0 * max(0, drawdown_increment)
-            - 0.5 * volatility * abs(net_pnl)
-            - 1.0 * (0.5 if overtrading else 0)
-            + 0.3 * sharpe_increment
-        )
-        return reward
+    def compute_reward(self, net_pnl, drawdown_increment, volatility, overtrading, sharpe_increment):
+        return (net_pnl - 2.0 * max(0, drawdown_increment)
+                - 0.5 * volatility * abs(net_pnl)
+                - 1.0 * (0.5 if overtrading else 0)
+                + 0.3 * sharpe_increment)
 
     async def record_outcome(self, reward: float, done: bool = False):
-        """Trade tamamlandı, sonucu kaydet ve Q güncelle."""
         if self._last_state is None or self._last_action_idx is None:
             return
-
         next_state = self._build_state()
-        exp = Experience(
-            state=self._last_state,
-            action_idx=self._last_action_idx,
-            reward=reward,
-            next_state=next_state,
-            done=done,
-        )
+        exp = Experience(self._last_state, self._last_action_idx, reward, next_state, done)
         self.memory.append(exp)
         self.step_count += 1
         self.episode_count += 1
         self.last_reward = reward
         self.total_reward += reward
-
-        # Online Q güncelleme (her step)
         self._update_q(exp)
-
-        # Epsilon decay — pozitif reward'da daha hızlı, negatifde yavaş
-        if reward > 0:
-            self.epsilon = max(0.05, self.epsilon * 0.998)   # başarıda hızlı öğren
-        else:
-            self.epsilon = max(0.05, self.epsilon * 0.9999)  # başarısızlıkta temkinli
-
-        # Periyodik kayıt
+        self.epsilon = max(0.05, self.epsilon * (0.998 if reward > 0 else 0.9999))
         if self.step_count % 50 == 0:
             await self.save_model()
 
     def _update_q(self, exp: Experience):
-        """Tek adım Q güncelleme (tabular)."""
         q = self._get_q(exp.state)
         next_q = self._get_q(exp.next_state)
-
-        target = exp.reward
-        if not exp.done:
-            target += self.gamma * max(next_q)
-
+        target = exp.reward + (self.gamma * max(next_q) if not exp.done else 0)
         q[exp.action_idx] += self.lr * (target - q[exp.action_idx])
 
     async def learning_loop(self):
-        """Arka planda periyodik batch güncelleme (replay buffer'dan)."""
         self._running = True
-        logger.info("RL learning loop başlatıldı")
+        logger.info("🧠 RL learning loop başlatıldı (kalıcı hafıza aktif)")
+        save_counter = 0
         while self._running:
             await asyncio.sleep(60)
             if len(self.memory) >= self.s.RL_BATCH_SIZE:
-                # Önce en son deneyimlere öncelik ver (prioritized replay basit)
-                recent = list(self.memory)[-self.s.RL_BATCH_SIZE//2:]
-                old_batch = random.sample(list(self.memory), min(self.s.RL_BATCH_SIZE//2, len(self.memory)))
+                recent    = list(self.memory)[-self.s.RL_BATCH_SIZE // 2:]
+                old_batch = random.sample(list(self.memory), min(self.s.RL_BATCH_SIZE // 2, len(self.memory)))
                 batch = recent + old_batch
                 for exp in batch:
                     self._update_q(exp)
-                avg_reward = sum(e.reward for e in batch) / len(batch) if batch else 0
-                logger.info(f"🧠 RL batch update: {len(batch)} exp | ε={self.epsilon:.4f} | states={len(self.q_table)} | avg_reward={avg_reward:.3f}")
+                avg_r = sum(e.reward for e in batch) / len(batch) if batch else 0
+                logger.info(f"🧠 RL batch: {len(batch)} exp | ε={self.epsilon:.4f} | "
+                            f"states={len(self.q_table)} | avg_r={avg_r:.3f} | ep={self.episode_count}")
+            save_counter += 1
+            if save_counter >= 10:  # 10 dakikada bir zorunlu kayıt
+                save_counter = 0
+                await self.save_model()
 
     def get_status(self) -> dict:
+        from persistence import get_storage_info
+        try:
+            storage = get_storage_info()
+        except Exception:
+            storage = {}
         return {
             "epsilon": round(self.epsilon, 4),
             "q_table_size": len(self.q_table),
             "memory_size": len(self.memory),
             "step_count": self.step_count,
-            "episode_count": getattr(self, "episode_count", 0),
-            "last_reward": round(getattr(self, "last_reward", 0), 4),
-            "total_reward": round(getattr(self, "total_reward", 0), 3),
+            "episode_count": self.episode_count,
+            "last_reward": round(self.last_reward, 4),
+            "total_reward": round(self.total_reward, 3),
+            "storage": storage,
         }
