@@ -73,19 +73,6 @@ def _load_persisted_logs():
     except Exception:
         pass
 
-_load_persisted_logs():
-    try:
-        if os.path.exists(_LOG_FILE):
-            with open(_LOG_FILE, "r", encoding="utf-8") as lf:
-                lines = lf.readlines()
-            for line in lines[-MAX_LOGS:]:
-                try:
-                    _log_buffer.append(json.loads(line.strip()))
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
 _load_persisted_logs()
 
 
