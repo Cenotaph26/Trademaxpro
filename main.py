@@ -499,6 +499,11 @@ async def _market_cache_loop():
             prices = await _fetch_market_prices()
             if prices:
                 app.state.market_cache = prices
+                # strategy manager fiyat lookup için data_client'a da aktar
+                try:
+                    app.state.data_client._market_cache = prices
+                except Exception:
+                    pass
         except Exception as e:
             logger.warning(f"Market cache loop hatası: {e}")
         await asyncio.sleep(3)
@@ -535,8 +540,11 @@ async def live_positions(request: Request):
         # Auth durumundan bağımsız - her zaman pozisyon çekmeye çalış
         raw = []
         try:
-            # symbols=None → tüm açık pozisyonlar (belirli sembol değil)
+            # Önce symbols=None ile tüm pozisyonlar
             raw = await dc.exchange.fetch_positions(symbols=None)
+            # Testnet'te boş gelirse positionRisk ile tekrar dene
+            if not any(abs(float(p.get("contracts") or p.get("info",{}).get("positionAmt") or 0)) > 1e-9 for p in raw):
+                raise Exception("fetch_positions boş döndü, positionRisk deneniyor")
         except Exception as e1:
             logger.warning(f"fetch_positions hatası: {e1}")
             try:

@@ -1041,7 +1041,7 @@ async function submitTrade(){
   if(!_tradeSym){res_el.textContent='⚠ Sembol seçilmedi';return;}
   btn.disabled=true;btn.textContent='GÖNDERILIYOR...';btn.style.opacity='0.6';
   const payload={
-    symbol: _tradeSym.replace(':USDT','').replace('/USDT','')+'USDT',
+    symbol: (()=>{let s=_tradeSym.replace(':USDT','').replace('/USDT','').replace('USDT','').toUpperCase();return s+'USDT';})(),
     side: _tradeSide,
     quantity: parseFloat(document.getElementById('tm-qty').value)||50,
     leverage: _tradeLev,
@@ -1052,15 +1052,16 @@ async function submitTrade(){
   };
   addLog(`📤 Manuel işlem: ${payload.symbol} ${payload.side} $${payload.quantity} ${payload.leverage}x`,'trade');
   const res=await apiFetch('/execution/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-  btn.disabled=false;
-  if(res.ok){
+  btn.disabled=false;btn.style.opacity='1';
+  if(res&&res.ok){
     res_el.style.color='var(--green)';res_el.textContent='✅ İşlem açıldı!';
-    addLog(`✅ ${payload.symbol} ${payload.side} ${payload.leverage}x açıldı`,'ok');
-    setTimeout(()=>{closeTrade();loadPositions();},800);
+    addLog(`✅ ${payload.symbol} ${payload.side} ${payload.leverage}x @ $${res.entry_price||'?'} açıldı`,'ok');
+    setTimeout(()=>{closeTrade();loadPositions();},1200);
   } else {
-    res_el.style.color='var(--red)';res_el.textContent='❌ '+(res.reason||'Hata');
-    addLog(`❌ İşlem başarısız: ${res.reason||'Bilinmeyen'}`,'error');
-    btn.textContent=_tradeSide==='BUY'?'▲ LONG AÇ':'▼ SHORT AÇ';btn.style.opacity='1';
+    const errMsg=res?.reason||res?.detail||'Sunucu hatası';
+    res_el.style.color='var(--red)';res_el.textContent='❌ '+errMsg;
+    addLog(`❌ İşlem başarısız [${payload.symbol}]: ${errMsg}`,'error');
+    btn.textContent=_tradeSide==='BUY'?'▲ LONG AÇ':'▼ SHORT AÇ';
   }
 }
 

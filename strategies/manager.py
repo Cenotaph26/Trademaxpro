@@ -48,14 +48,21 @@ class StrategyManager:
         self._initialized = False
 
     def _ensure_init(self):
-        if not self._initialized and self.data.exchange:
-            self.executor = OrderExecutor(self.data.exchange, self.s)
-            self.dca = DCAStrategy(self.executor, self.risk, self.data, self.s)
-            self.grid = GridStrategy(self.executor, self.risk, self.data, self.s)
-            self.smart = SmartTradeStrategy(self.executor, self.risk, self.data, self.s)
-            self._initialized = True
-            asyncio.create_task(self.dca.monitor_all())
-            asyncio.create_task(self.grid.monitor_all())
+        if not self._initialized:
+            if not self.data.exchange:
+                logger.warning("_ensure_init: exchange henüz hazır değil, bekleniyor")
+                return
+            try:
+                self.executor = OrderExecutor(self.data.exchange, self.s)
+                self.dca = DCAStrategy(self.executor, self.risk, self.data, self.s)
+                self.grid = GridStrategy(self.executor, self.risk, self.data, self.s)
+                self.smart = SmartTradeStrategy(self.executor, self.risk, self.data, self.s)
+                self._initialized = True
+                asyncio.create_task(self.dca.monitor_all())
+                asyncio.create_task(self.grid.monitor_all())
+                logger.info("StrategyManager başlatıldı")
+            except Exception as e:
+                logger.error(f"_ensure_init hatası: {e}")
 
     def set_rl_agent(self, agent):
         self.rl_agent = agent
@@ -69,6 +76,11 @@ class StrategyManager:
                   order_type, strategy_tag, entry_hint}
         """
         self._ensure_init()
+        # Executor hâlâ None ise exchange hazır değil demek
+        if not self.executor:
+            err = "Exchange bağlantısı hazır değil - lütfen 2-3 saniye bekleyin"
+            logger.error(err)
+            return {"ok": False, "reason": err}
         symbol = signal.get("symbol", self.s.SYMBOL)
         side   = signal.get("side", "BUY").upper()
 
@@ -115,15 +127,31 @@ class StrategyManager:
         actual_leverage = leverage  # dashboard'dan gelen kaldıracı kullan
 
         # ── 4. Kaldıraç ayarla ─────────────────────────────────────
-        await self.executor.set_leverage(symbol, actual_leverage)
+        try:
+            await self.executor.set_leverage(symbol, actual_leverage)
+        except Exception as e:
+            logger.warning(f"Kaldıraç ayarlanamadı [{symbol}]: {e} — devam ediliyor")
 
         # ── 5. Sembol fiyatını al ──────────────────────────────────
         # Önce BTC mi kontrol et, değilse anlık fiyat çek
-        if symbol.upper() == self.s.SYMBOL.upper():
-            mark = state.mark_price
-        else:
-            mark = await _get_symbol_price(self.data.exchange, symbol, fallback=state.mark_price)
-            logger.info(f"[{symbol}] Anlık fiyat: {mark}")
+        # Market cache'den anlık fiyat al (önce)
+        mark = 0.0
+        try:
+            mc = getattr(self.data, "_market_cache", {})
+            sym_clean = symbol.replace("USDT","").upper()
+            for k,v in mc.items():
+                if k.replace("USDT","").upper() == sym_clean:
+                    mark = float(v.get("price") or 0)
+                    break
+        except Exception:
+            pass
+
+        if mark <= 0:
+            if symbol.upper() == self.s.SYMBOL.upper():
+                mark = state.mark_price
+            else:
+                mark = await _get_symbol_price(self.data.exchange, symbol, fallback=state.mark_price)
+        logger.info(f"[{symbol}] Fiyat: {mark}")
 
         if mark <= 0:
             return {"ok": False, "reason": f"[{symbol}] Geçerli fiyat alınamadı"}

@@ -47,6 +47,7 @@ class BinanceDataClient:
         self.state = MarketState()
         self._running = False
         self._auth_ok = False  # auth başarılı mı?
+        self._market_cache = {}  # {symbol: {price, change, ...}} - market endpoint ile dolduruluyor
 
     async def connect(self):
         params = {
