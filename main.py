@@ -230,18 +230,81 @@ async def status_overview(request: Request):
         margin_pct = _f(getattr(ds, "margin_usage_pct", None))
         max_pos    = getattr(getattr(re, "settings", None), "MAX_POSITIONS", 5)
 
+        # Risk stats
+        risk_stats = {}
+        try:
+            risk_stats = re.get_stats()
+        except Exception:
+            pass
+
+        win_rate = risk_stats.get("winrate", 0)
+        trade_count = risk_stats.get("trade_count", 0) or se_status.get("trade_count", 0)
+        wins = round(win_rate * trade_count) if trade_count else 0
+        losses = trade_count - wins
+        expectancy = risk_stats.get("expectancy", 0)
+        sharpe = risk_stats.get("sharpe", 0)
+        drawdown_pct = risk_stats.get("drawdown_pct", 0)
+        daily_loss = risk_stats.get("daily_loss", 0)
+        consec_loss = risk_stats.get("consecutive_losses", 0)
+        kill_active = getattr(getattr(re, "state", None), "kill_switch_active", False)
+        kill_reason = str(getattr(getattr(re, "state", None), "kill_switch_reason", "") or "")
+
+        # Trade history
+        history = []
+        try:
+            for t in re.state.trade_history[-50:]:
+                history.append({
+                    "sym": getattr(t, "symbol", "?"),
+                    "side": getattr(t, "side", "?"),
+                    "pnl": round(float(t.pnl), 4),
+                    "won": t.pnl > 0,
+                    "time": getattr(t, "timestamp", "").strftime("%H:%M") if hasattr(getattr(t, "timestamp", ""), "strftime") else str(getattr(t, "timestamp", "")),
+                    "strat": getattr(t, "strategy", ""),
+                    "lev": getattr(t, "leverage", 1),
+                })
+        except Exception:
+            pass
+
+        profit_factor = 0
+        try:
+            h = re.state.trade_history
+            if h:
+                gross_win = sum(t.pnl for t in h if t.pnl > 0)
+                gross_loss = abs(sum(t.pnl for t in h if t.pnl <= 0))
+                profit_factor = round(gross_win / (gross_loss + 1e-9), 3)
+        except Exception:
+            pass
+
         return {
             "ok": True,
             "balance": balance,        "wallet_balance": balance,
             "unrealized_pnl": unrealized, "daily_pnl": daily_pnl,
-            "daily_trades": int(getattr(ds, "daily_trades", 0)),
+            "daily_trades": trade_count,
             "open_positions": open_count,
             "mark_price": mark_price,  "last_price": mark_price,
             "atr_14": atr_14,          "regime": regime,
             "funding_rate": funding,
             "signal_engine": se_status,
             "rl_agent": rl_info,
-            "risk": {"max_positions": max_pos, "margin_usage_pct": margin_pct},
+            "risk": {
+                "max_positions": max_pos,
+                "margin_usage_pct": margin_pct,
+                "kill_switch": kill_active,
+                "kill_reason": kill_reason,
+                "daily_loss": daily_loss,
+                "consecutive_losses": consec_loss,
+                "drawdown_pct": drawdown_pct,
+            },
+            "stats": {
+                "win_rate": round(win_rate * 100, 1),
+                "wins": wins, "losses": losses,
+                "profit_factor": profit_factor,
+                "expectancy": round(expectancy, 4),
+                "sharpe": round(sharpe, 3),
+                "trade_count": trade_count,
+                "daily_loss": daily_loss,
+            },
+            "history": list(reversed(history)),
         }
     except Exception as e:
         logger.error(f"/status/overview: {e}", exc_info=True)

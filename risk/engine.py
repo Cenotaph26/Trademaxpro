@@ -40,6 +40,9 @@ class TradeRecord:
     side: str
     strategy: str
     slippage_pct: float = 0.0
+    symbol: str = ""
+    leverage: int = 1
+    pnl_pct: float = 0.0
 
 
 @dataclass
