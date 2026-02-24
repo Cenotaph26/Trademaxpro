@@ -164,20 +164,22 @@ class BinanceDataClient:
                 if h is None or l is None or pc is None:
                     continue
                 trs.append(max(h - l, abs(h - pc), abs(l - pc)))
-        atr = sum(trs[-period:]) / period
-        self.state.atr_14 = atr
+            if not trs:
+                return
+            atr = sum(trs[-period:]) / period
+            self.state.atr_14 = atr
 
-        closes = [c["close"] for c in candles[-21:]]
-        returns = [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(1, len(closes))]
-        if returns:
-            mean = sum(returns) / len(returns)
-            variance = sum((r - mean) ** 2 for r in returns) / len(returns)
-            self.state.volatility_1h = variance ** 0.5
+            closes = [c["close"] for c in candles[-21:]]
+            returns = [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(1, len(closes))]
+            if returns:
+                mean = sum(returns) / len(returns)
+                variance = sum((r - mean) ** 2 for r in returns) / len(returns)
+                self.state.volatility_1h = variance ** 0.5
 
-        recent = candles[-20:]
-        total_range = sum(c["high"] - c["low"] for c in recent) / 20
-        net_move = abs(recent[-1]["close"] - recent[0]["close"])
-        ratio = net_move / (total_range + 1e-9)
+            recent = candles[-20:]
+            total_range = sum(c["high"] - c["low"] for c in recent) / 20
+            net_move = abs(recent[-1]["close"] - recent[0]["close"])
+            ratio = net_move / (total_range + 1e-9)
 
             if self.state.volatility_1h > 0.015:
                 self.state.regime = "volatile"
