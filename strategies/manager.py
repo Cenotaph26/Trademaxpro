@@ -264,6 +264,14 @@ class StrategyManager:
                 mmark = float(target.get("markPrice") or 0)
                 pnl_pct = ((mmark - entry) / entry * 100) if entry > 0 else 0
                 asyncio.create_task(tg.notify_trade_close(symbol, pos_side, upnl, pnl_pct))
+                # RL: gerçek PnL'e göre reward ver
+                if self.rl_agent:
+                    try:
+                        reward = upnl / 10.0  # normalize: $10 kazanç = +1 reward
+                        asyncio.create_task(self.rl_agent.record_outcome(reward, done=True))
+                        logger.info(f"🧠 RL reward: {reward:+.3f} (PnL=${upnl:+.2f})")
+                    except Exception:
+                        pass
             except Exception:
                 pass
 

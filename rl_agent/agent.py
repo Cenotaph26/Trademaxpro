@@ -94,6 +94,9 @@ class RLAgent:
         self.lr = settings.RL_LEARNING_RATE
         self.gamma = settings.RL_DISCOUNT
         self.step_count = 0
+        self.episode_count = 0
+        self.last_reward = 0.0
+        self.total_reward = 0.0
         self._last_state: Optional[tuple] = None
         self._last_action_idx: Optional[int] = None
         self._running = False
@@ -215,12 +218,18 @@ class RLAgent:
         )
         self.memory.append(exp)
         self.step_count += 1
+        self.episode_count += 1
+        self.last_reward = reward
+        self.total_reward += reward
 
         # Online Q güncelleme (her step)
         self._update_q(exp)
 
-        # Epsilon decay
-        self.epsilon = max(0.05, self.epsilon * 0.9995)
+        # Epsilon decay — pozitif reward'da daha hızlı, negatifde yavaş
+        if reward > 0:
+            self.epsilon = max(0.05, self.epsilon * 0.998)   # başarıda hızlı öğren
+        else:
+            self.epsilon = max(0.05, self.epsilon * 0.9999)  # başarısızlıkta temkinli
 
         # Periyodik kayıt
         if self.step_count % 50 == 0:
@@ -244,10 +253,14 @@ class RLAgent:
         while self._running:
             await asyncio.sleep(60)
             if len(self.memory) >= self.s.RL_BATCH_SIZE:
-                batch = random.sample(self.memory, self.s.RL_BATCH_SIZE)
+                # Önce en son deneyimlere öncelik ver (prioritized replay basit)
+                recent = list(self.memory)[-self.s.RL_BATCH_SIZE//2:]
+                old_batch = random.sample(list(self.memory), min(self.s.RL_BATCH_SIZE//2, len(self.memory)))
+                batch = recent + old_batch
                 for exp in batch:
                     self._update_q(exp)
-                logger.debug(f"RL batch update: {self.s.RL_BATCH_SIZE} exp | ε={self.epsilon:.4f} | states={len(self.q_table)}")
+                avg_reward = sum(e.reward for e in batch) / len(batch) if batch else 0
+                logger.info(f"🧠 RL batch update: {len(batch)} exp | ε={self.epsilon:.4f} | states={len(self.q_table)} | avg_reward={avg_reward:.3f}")
 
     def get_status(self) -> dict:
         return {
@@ -255,4 +268,7 @@ class RLAgent:
             "q_table_size": len(self.q_table),
             "memory_size": len(self.memory),
             "step_count": self.step_count,
+            "episode_count": getattr(self, "episode_count", 0),
+            "last_reward": round(getattr(self, "last_reward", 0), 4),
+            "total_reward": round(getattr(self, "total_reward", 0), 3),
         }

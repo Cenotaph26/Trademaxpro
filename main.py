@@ -41,12 +41,25 @@ import os, json, threading
 _LOG_FILE = "/tmp/bot_logs.jsonl"   # Railway'de /tmp kalıcı değil ama restart'a kadar saklar
 
 class _BufferHandler(logging.Handler):
+    """
+    Root logger'a bağlı buffer — tüm logları yakalar.
+    DÜZELTME: formatTime() Handler'da yok → datetime.now() kullan.
+    """
+    _fmt = logging.Formatter("%(message)s")  # sadece mesaj formatı
+
     def emit(self, record):
         try:
+            # formatTime DÜZELTME: Formatter üzerinden çağır
+            t = self._fmt.formatTime(record, "%H:%M:%S")
+            msg = record.getMessage()
+            # Çok uzun mesajları kırp
+            if len(msg) > 500:
+                msg = msg[:497] + "..."
             entry = {
-                "time":    self.formatTime(record, "%H:%M:%S"),
-                "level":   record.levelname,
-                "message": record.getMessage(),
+                "time":    t,
+                "level":   record.levelname,  # INFO / WARNING / ERROR
+                "message": msg,
+                "name":    record.name,
             }
             _log_buffer.append(entry)
             if len(_log_buffer) > MAX_LOGS:
@@ -56,16 +69,15 @@ class _BufferHandler(logging.Handler):
                 with _log_file_lock:
                     with open(_LOG_FILE, "a", encoding="utf-8") as lf:
                         lf.write(json.dumps(entry, ensure_ascii=False) + "\n")
-                        # Dosya çok büyüdüyse başından kırp
-                        if os.path.getsize(_LOG_FILE) > 5 * 1024 * 1024:  # 5MB
-                            with open(_LOG_FILE, "r", encoding="utf-8") as lf2:
-                                lines = lf2.readlines()[-MAX_LOGS:]
-                            with open(_LOG_FILE, "w", encoding="utf-8") as lf3:
-                                lf3.writelines(lines)
+                    if os.path.getsize(_LOG_FILE) > 5 * 1024 * 1024:  # 5MB
+                        with open(_LOG_FILE, "r", encoding="utf-8") as lf2:
+                            lines = lf2.readlines()[-MAX_LOGS:]
+                        with open(_LOG_FILE, "w", encoding="utf-8") as lf3:
+                            lf3.writelines(lines)
             except Exception:
                 pass
         except Exception:
-            pass
+            pass  # Hiçbir zaman log sisteminin kendisi çökmemeli
 
 _log_file_lock = threading.Lock()
 
@@ -102,10 +114,13 @@ if not root_logger.handlers:
 root_logger.addHandler(_buf_handler)
 root_logger.setLevel(logging.INFO)
 
-# uvicorn gibi kütüphanelerin loglarını da yakala
-for _lib_logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error", "fastapi"):
+# uvicorn loglarını da yakala - propagate + direkt handler
+for _lib_logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error", "fastapi",
+                          "signal_engine", "strategies.manager", "rl_agent.agent",
+                          "risk.engine", "data.binance_client", "execution.executor"):
     _lib = logging.getLogger(_lib_logger_name)
-    _lib.propagate = True  # root'a ilet
+    _lib.propagate = True
+    _lib.addHandler(_buf_handler)  # direkt de ekle (propagate bypass için)
 
 # ── Global state ──────────────────────────────────────────────────────────────
 data_client: BinanceDataClient = None
@@ -368,6 +383,9 @@ async def status_symbols(request: Request):
 @app.get("/status/logs")
 async def status_logs(limit: int = Query(200)):
     """Memory buffer + dosya birleşimi ile kalıcı loglar döner."""
+    # Eğer buffer boşsa test log ekle (bağlantı doğrulama)
+    if not _log_buffer:
+        logger.info("📋 Log buffer aktif - sistem çalışıyor")
     combined = list(_log_buffer)
     # Dosyadan eksikleri tamamla (memory sıfırlandıysa)
     if len(combined) < 50 and os.path.exists(_LOG_FILE):

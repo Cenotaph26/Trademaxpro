@@ -185,9 +185,16 @@ class SignalScore:
 
     @property
     def side(self) -> Optional[str]:
-        if self.total > 0.15:
+        # Ağırlıklı ortalama yerine: kaç indikatör aynı yönde?
+        pos = sum(1 for v in self.scores.values() if v > 0.05)
+        neg = sum(1 for v in self.scores.values() if v < -0.05)
+        total_ind = len(self.scores)
+        agreement = max(pos, neg) / total_ind if total_ind > 0 else 0
+
+        # En az %50 indikatör hemfikir VE skor eşiği
+        if self.total > 0.18 and agreement >= 0.5:
             return "BUY"
-        elif self.total < -0.15:
+        elif self.total < -0.18 and agreement >= 0.5:
             return "SELL"
         return None
 
@@ -231,7 +238,7 @@ class AutoSignalEngine:
 
         # ── Cooldown: aynı sembol için min 4 saat bekleme ──────────
         self._last_trade_time: dict = {}   # symbol → datetime
-        self._cooldown_hours = 1  # işlem başarılıysa 1 saat cooldown
+        self._cooldown_hours = 2  # işlem başarılıysa 2 saat cooldown
 
         # ── Multi-symbol mod ──────────────────────────────────────
         top_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
@@ -339,19 +346,24 @@ class AutoSignalEngine:
 
         score = SignalScore()
 
-        # ── 1. EMA Kesişimi ────────────────────────────────────────
-        ema9  = ema(closes_1h, 9)
-        ema21 = ema(closes_1h, 21)
-        ema50 = ema(closes_1h, 50)
+        # ── 1. EMA Kesişimi + 200 EMA Trend Filtresi ──────────────
+        ema9   = ema(closes_1h, 9)
+        ema21  = ema(closes_1h, 21)
+        ema50  = ema(closes_1h, 50)
+        ema200 = ema(closes_1h, 200) if len(closes_1h) >= 200 else ema(closes_1h, len(closes_1h))
+
+        # 200 EMA: büyük trend yönünü belirle
+        above_200 = current_price > ema200
+        trend_bias = 1.2 if above_200 else 0.8  # ana trend yönünde sinyal güçlenir
 
         if ema9 > ema21 > ema50:
-            score.add("EMA", 0.5, f"EMA9({ema9:.0f}) > EMA21({ema21:.0f}) > EMA50({ema50:.0f}) — güçlü yükseliş trendi")
+            score.add("EMA", 0.5 * trend_bias, f"EMA9>{ema21:.0f}>EMA50 | 200EMA={'üstü' if above_200 else 'altı'}")
         elif ema9 > ema21:
-            score.add("EMA", 0.25, f"EMA9 > EMA21 — kısa vadeli yükseliş")
+            score.add("EMA", 0.25 * trend_bias, f"EMA9>EMA21 | 200EMA={'üstü' if above_200 else 'altı'}")
         elif ema9 < ema21 < ema50:
-            score.add("EMA", -0.5, f"EMA9({ema9:.0f}) < EMA21({ema21:.0f}) < EMA50({ema50:.0f}) — güçlü düşüş trendi")
+            score.add("EMA", -0.5 / trend_bias, f"EMA9<{ema21:.0f}<EMA50 | 200EMA={'üstü' if above_200 else 'altı'}")
         elif ema9 < ema21:
-            score.add("EMA", -0.25, "EMA9 < EMA21 — kısa vadeli düşüş")
+            score.add("EMA", -0.25 / trend_bias, f"EMA9<EMA21 | 200EMA={'üstü' if above_200 else 'altı'}")
         else:
             score.add("EMA", 0.0, "EMA nötr")
 
@@ -359,16 +371,23 @@ class AutoSignalEngine:
         rsi_val = rsi(closes_1h, 14)
         rsi_5m  = rsi(closes_5m, 14) if len(closes_5m) > 14 else rsi_val
 
+        # 5m RSI ile çoklu zaman dilimi onayı
+        rsi_confirm = 1.0
+        if rsi_val < 40 and rsi_5m < 45:    rsi_confirm = 1.2  # 5m de aynı yönde
+        elif rsi_val > 60 and rsi_5m > 55:  rsi_confirm = 1.2
+        elif rsi_val < 40 and rsi_5m > 55:  rsi_confirm = 0.6  # çelişiyor
+        elif rsi_val > 60 and rsi_5m < 45:  rsi_confirm = 0.6
+
         if rsi_val < 30:
-            score.add("RSI", 1.0, f"RSI={rsi_val:.1f} — aşırı satım, güçlü alım sinyali")
+            score.add("RSI", 1.0 * rsi_confirm, f"RSI1h={rsi_val:.1f} RSI5m={rsi_5m:.1f} — aşırı satım")
         elif rsi_val < 40:
-            score.add("RSI", 0.6, f"RSI={rsi_val:.1f} — satım bölgesi")
+            score.add("RSI", 0.6 * rsi_confirm, f"RSI1h={rsi_val:.1f} RSI5m={rsi_5m:.1f} — satım bölgesi")
         elif rsi_val > 70:
-            score.add("RSI", -1.0, f"RSI={rsi_val:.1f} — aşırı alım, güçlü satım sinyali")
+            score.add("RSI", -1.0 * rsi_confirm, f"RSI1h={rsi_val:.1f} RSI5m={rsi_5m:.1f} — aşırı alım")
         elif rsi_val > 60:
-            score.add("RSI", -0.6, f"RSI={rsi_val:.1f} — alım bölgesi")
+            score.add("RSI", -0.6 * rsi_confirm, f"RSI1h={rsi_val:.1f} RSI5m={rsi_5m:.1f} — alım bölgesi")
         else:
-            score.add("RSI", 0.0, f"RSI={rsi_val:.1f} — nötr bölge")
+            score.add("RSI", 0.0, f"RSI1h={rsi_val:.1f} RSI5m={rsi_5m:.1f} — nötr")
 
         # ── 3. MACD ───────────────────────────────────────────────
         macd_line, signal_line, histogram = macd(closes_1h)
@@ -387,9 +406,9 @@ class AutoSignalEngine:
         bb_width = (bb_upper - bb_lower) / (bb_mid + 1e-9)
 
         if current_price < bb_lower:
-            score.add("BB", 0.7, f"Fiyat alt band altında ({current_price:.0f} < {bb_lower:.0f})")
+            score.add("BB", 0.45, f"Fiyat alt band altında ({current_price:.0f} < {bb_lower:.0f})")
         elif current_price > bb_upper:
-            score.add("BB", -0.7, f"Fiyat üst band üstünde ({current_price:.0f} > {bb_upper:.0f})")
+            score.add("BB", -0.45, f"Fiyat üst band üstünde ({current_price:.0f} > {bb_upper:.0f})")
         elif current_price < bb_mid and bb_width > 0.02:
             score.add("BB", 0.2, "Bandın alt yarısı — hafif alım")
         elif current_price > bb_mid and bb_width > 0.02:
@@ -405,9 +424,9 @@ class AutoSignalEngine:
             breakout_threshold = atr_val * 0.5
 
             if current_price > prev_high + breakout_threshold:
-                score.add("ATR_BREAKOUT", 0.85, f"Üst breakout: {current_price:.0f} > {prev_high:.0f} + {breakout_threshold:.0f}")
+                score.add("ATR_BREAKOUT", 0.55, f"Üst breakout: {current_price:.0f} > {prev_high:.0f} + {breakout_threshold:.0f}")
             elif current_price < prev_low - breakout_threshold:
-                score.add("ATR_BREAKOUT", -0.85, f"Alt breakout: {current_price:.0f} < {prev_low:.0f} - {breakout_threshold:.0f}")
+                score.add("ATR_BREAKOUT", -0.55, f"Alt breakout: {current_price:.0f} < {prev_low:.0f} - {breakout_threshold:.0f}")
             else:
                 score.add("ATR_BREAKOUT", 0.0, "Breakout yok — konsolidasyon")
 
@@ -450,10 +469,13 @@ class AutoSignalEngine:
             else:
                 score.add("FUNDING", 0.3, f"Negatif funding ({funding:.4f}) — shortlar baskı altında")
 
-        # ── 10. Haber Sentiment ───────────────────────────────────
-        news_score = await fetch_news_sentiment(symbol)
-        if abs(news_score) > 0.1:
-            score.add("NEWS", news_score * 0.5, f"Haber sentiment: {news_score:+.2f}")
+        # ── 10. Haber Sentiment (zaman aşımı güvenli) ────────────
+        try:
+            news_score = await asyncio.wait_for(fetch_news_sentiment(symbol), timeout=4.0)
+        except Exception:
+            news_score = 0.0
+        if abs(news_score) > 0.15:  # daha yüksek eşik (noise azalt)
+            score.add("NEWS", news_score * 0.4, f"Haber sentiment: {news_score:+.2f}")
 
         # ── Sonuç ─────────────────────────────────────────────────
         total = score.total
@@ -556,9 +578,22 @@ class AutoSignalEngine:
 
         if isinstance(result, dict) and result.get("ok"):
             logger.info(f"✅ İşlem açıldı: {result}")
+            # RL'ye pozitif reward: sinyal doğruysa ve işlem açıldıysa
+            if self.rl:
+                try:
+                    reward = abs(total) * 2.0  # sinyal gücüne göre reward
+                    asyncio.create_task(self.rl.record_outcome(reward, done=False))
+                except Exception as e:
+                    logger.debug(f"RL reward hatası: {e}")
         else:
             reason = result.get("reason") if isinstance(result, dict) else str(result)
             logger.warning(f"❌ İşlem reddedildi: {reason}")
+            # RL'ye küçük negatif reward: risk/cooldown engeli
+            if self.rl and "cooldown" not in str(reason).lower():
+                try:
+                    asyncio.create_task(self.rl.record_outcome(-0.1, done=False))
+                except Exception:
+                    pass
 
     # ─── Durum API'si ─────────────────────────────────────────────
 
