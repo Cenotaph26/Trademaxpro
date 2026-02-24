@@ -26,7 +26,7 @@ from strategies.manager import StrategyManager
 from rl_agent.agent import RLAgent
 from api.webhook import router as webhook_router
 from api.execution import router as execution_router
-from signal_engine import AutoSignalEngine
+from signal_engine import AutoSignalEngine, TOP_SYMBOLS
 from utils.logger import setup_logger
 from utils import telegram as tg
 
@@ -345,10 +345,18 @@ async def status_agent(request: Request):
             if rl and "rl_epsilon" in agent_settings:
                 rl.epsilon = float(agent_settings["rl_epsilon"])
             # Sinyal motoru parametrelerini güncelle
-            if "scan_interval_min" in agent_settings and hasattr(se, "scan_interval_min"):
-                se.scan_interval_min = int(agent_settings["scan_interval_min"])
-            if "min_signal_score" in agent_settings and hasattr(se, "min_signal_score"):
+            if "scan_interval_min" in agent_settings:
+                se.scan_interval_min = max(1, int(agent_settings["scan_interval_min"]))
+                se.scan_interval = se.scan_interval_min * 60  # ikisini de güncelle
+                logger.info(f"Tarama aralığı: {se.scan_interval_min} dk")
+            if "min_signal_score" in agent_settings:
                 se.min_signal_score = float(agent_settings["min_signal_score"])
+                logger.info(f"Min sinyal skoru: {se.min_signal_score}")
+            if "scan_size" in agent_settings:
+                # Tarama boyutunu güncelle - top N sembol
+                size = max(3, min(50, int(agent_settings["scan_size"])))
+                se._target_symbols = TOP_SYMBOLS[:size] if size <= len(TOP_SYMBOLS) else TOP_SYMBOLS
+                logger.info(f"Tarama boyutu: {size}")
             logger.info(f"⚙️ Ajan ayarları güncellendi: {agent_settings}")
 
         # Kill switch
@@ -423,7 +431,7 @@ async def _market_cache_loop():
                 app.state.market_cache = prices
         except Exception as e:
             logger.warning(f"Market cache loop hatası: {e}")
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
 
 
 @app.get("/status/market")

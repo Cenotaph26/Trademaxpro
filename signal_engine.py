@@ -239,6 +239,8 @@ class AutoSignalEngine:
             if getattr(settings, "MULTI_SYMBOL", True) is not False
             else [getattr(settings, "SYMBOL", "BTCUSDT")]
         )
+        self.scan_interval_min = self.scan_interval // 60  # dashboard'dan değiştirilebilir
+        self.min_signal_score = 0.20  # dashboard'dan değiştirilebilir
 
     # ─────────────────────────────────────────────────────────────
 
@@ -255,7 +257,9 @@ class AutoSignalEngine:
                 await self._scan_all_symbols()
             except Exception as e:
                 logger.error(f"Sinyal motoru kritik hata: {e}", exc_info=True)
-            await asyncio.sleep(self.scan_interval)
+            # scan_interval_min değişebilir (dashboard'dan)
+            interval = self.scan_interval_min * 60
+            await asyncio.sleep(interval)
 
     async def _scan_all_symbols(self):
         """Tüm hedef sembolleri sırayla tara."""
@@ -455,8 +459,12 @@ class AutoSignalEngine:
         for detail in score.details:
             logger.info(f"   → {detail}")
 
+        # Dashboard'dan ayarlanabilir min skor kontrolü
+        if abs(total) < self.min_signal_score:
+            side = None
+
         if side is None:
-            logger.info("⏭ Yeterli sinyal yok, işlem atlandı")
+            logger.info(f"⏭ Yeterli sinyal yok (skor={total:+.3f} < min={self.min_signal_score:.2f})")
             self.last_signal = {
                 "time": datetime.now(timezone.utc).isoformat(),
                 "symbol": symbol,
@@ -544,7 +552,7 @@ class AutoSignalEngine:
     def get_status(self) -> dict:
         return {
             "running": self._running,
-            "scan_interval_min": self.scan_interval // 60,
+            "scan_interval_min": self.scan_interval_min,
             "signal_count": self.signal_count,
             "trade_count": self.signal_count,
             "last_signal": self.last_signal,
@@ -553,5 +561,5 @@ class AutoSignalEngine:
                 for sym in self._last_trade_time
             },
             "target_symbols": self._target_symbols,
-            "min_signal_score": getattr(self, "min_signal_score", 0.20),
+            "min_signal_score": self.min_signal_score,
         }
