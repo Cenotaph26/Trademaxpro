@@ -473,7 +473,7 @@ class AutoSignalEngine:
             try:
                 decision = self.rl.decide()
                 # RL henüz eğitilmemişse (epsilon yüksek) trade_allowed'ı ignore et
-                if not decision.trade_allowed and self.rl.epsilon < 0.5:
+                if not decision.trade_allowed and self.rl.epsilon < 0.15:
                     logger.info(f"🤖 RL agent işlemi engelledi (ε={self.rl.epsilon:.3f})")
                     return
                 elif not decision.trade_allowed:

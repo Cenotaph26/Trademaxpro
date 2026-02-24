@@ -358,9 +358,11 @@ async def status_agent(request: Request):
             request.app.state.risk_engine.deactivate_kill_switch()
 
         if enabled:
-            if not getattr(se, "_running", False):
-                se._running = True
-                asyncio.create_task(se.start())
+            # Her seferinde yeniden başlat (force restart)
+            se._running = False
+            await asyncio.sleep(0.1)
+            se._running = True
+            asyncio.create_task(se.start())
             msg = "Ajan başlatıldı"
         else:
             se._running = False
