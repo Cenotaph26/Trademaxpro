@@ -523,6 +523,56 @@ async def live_positions(request: Request):
                 "liquidation_price": liq,
                 "margin": abs(margin),
             })
+        # Her pozisyon için açık emirleri çek (SL/TP bilgisi)
+        try:
+            open_orders = await dc.exchange.fetch_open_orders()
+            # Sembol bazında SL/TP eşleştir
+            sl_map = {}  # symbol -> price
+            tp_map = {}  # symbol -> price
+            for o in open_orders:
+                osym = (o.get("symbol") or "").replace("/","").replace(":USDT","")
+                otype = (o.get("type") or "").upper()
+                ostop = float(o.get("stopPrice") or o.get("price") or 0)
+                oside = (o.get("side") or "").upper()
+                reduce = o.get("reduceOnly") or o.get("info", {}).get("reduceOnly") == "true"
+                if not reduce:
+                    continue
+                if otype in ("STOP_MARKET", "STOP") or (otype == "LIMIT" and ostop > 0):
+                    # SL veya LIMIT-SL (testnet fallback)
+                    # Eğer bu zaten bir TP limit mi SL limit mi?
+                    # LONG için SL = entry altında, TP = entry üstünde
+                    # Şimdilik stop_price'a göre ayır
+                    for p in positions:
+                        psym = p["symbol"]
+                        if osym == psym:
+                            entry_p = p.get("entry_price", 0)
+                            if otype in ("STOP_MARKET", "STOP"):
+                                sl_map[psym] = ostop
+                            elif otype == "LIMIT" and entry_p > 0:
+                                # LONG için: price > entry → TP, price < entry → SL
+                                pside = p.get("side", "LONG")
+                                if pside == "LONG":
+                                    if ostop > entry_p:
+                                        tp_map[psym] = ostop
+                                    else:
+                                        sl_map[psym] = ostop
+                                else:
+                                    if ostop < entry_p:
+                                        tp_map[psym] = ostop
+                                    else:
+                                        sl_map[psym] = ostop
+                elif otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
+                    for p in positions:
+                        if osym == p["symbol"]:
+                            tp_map[p["symbol"]] = ostop
+            # Pozisyonlara ekle
+            for p in positions:
+                psym = p["symbol"]
+                p["sl"] = sl_map.get(psym, 0)
+                p["tp"] = tp_map.get(psym, 0)
+        except Exception as oe:
+            logger.debug(f"Açık emir SL/TP çekme hatası (önemsiz): {oe}")
+
         return {"ok": True, "positions": positions, "count": len(positions)}
     except Exception as e:
         logger.error(f"live_positions hatası: {e}", exc_info=True)
