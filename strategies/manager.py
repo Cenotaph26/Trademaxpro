@@ -112,12 +112,9 @@ class StrategyManager:
         decision = None
         if self.rl_agent and not is_manual:
             decision = self.rl_agent.decide()
-            if not decision.trade_allowed and self.rl_agent.epsilon < 0.5:
-                logger.info(f"🤖 RL engelledi (ε={self.rl_agent.epsilon:.3f})")
-                return {"ok": False, "reason": "RL agent: trade_allowed=0"}
-            elif not decision.trade_allowed:
-                logger.info(f"🤖 RL eğitim aşaması (ε={self.rl_agent.epsilon:.3f}) — bypass")
-            logger.info(f"🤖 RL: {decision.strategy} | {decision.risk_mode} | trade={decision.trade_allowed}")
+            # RL trade_allowed=0 olsa bile işlem açılır — RL henüz eğitilmemiş
+            # RL sadece strateji/risk mod önerir, bloklama yapmaz
+            logger.info(f"🤖 RL: {decision.strategy} | {decision.risk_mode} | trade={decision.trade_allowed} | ε={self.rl_agent.epsilon:.3f}")
 
         risk_mode_str = decision.risk_mode if decision else "normal"
         actual_leverage = leverage  # dashboard'dan gelen kaldıracı kullan

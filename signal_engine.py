@@ -462,14 +462,13 @@ class AutoSignalEngine:
         if self.rl:
             try:
                 decision = self.rl.decide()
-                # RL sadece epsilon < 0.8 iken engel koyabilir
-                if not decision.trade_allowed and self.rl.epsilon < 0.80:
-                    logger.info(f"🤖 RL engelledi (ε={self.rl.epsilon:.3f})")
-                    return
-                elif not decision.trade_allowed:
-                    logger.info(f"🤖 RL eğitim aşamasında (ε={self.rl.epsilon:.3f}) — bypass")
+                # RL trade_allowed=0 olsa bile İŞLEM ENGELLENMEZ
+                # RL sadece strateji seçer, engelleme yapmaz (yeterince eğitilene kadar)
                 decision_strategy = decision.strategy
-                logger.info(f"🤖 RL: {decision_strategy} | {decision.risk_mode} | ε={self.rl.epsilon:.3f}")
+                logger.info(
+                    f"🤖 RL: {decision_strategy} | {decision.risk_mode} | "
+                    f"trade_allowed={decision.trade_allowed} | ε={self.rl.epsilon:.3f}"
+                )
             except Exception as e:
                 logger.warning(f"RL karar hatası: {e}")
 
