@@ -374,6 +374,46 @@ async def status_agent(request: Request):
         return {"ok": False, "reason": str(e)}
 
 
+@app.get("/status/market")
+async def status_market(request: Request):
+    """Tüm USDT vadeli coinlerin canlı fiyatlarını Binance'den çeker."""
+    try:
+        dc = request.app.state.data_client
+        if not (hasattr(dc, "exchange") and dc.exchange):
+            return {"ok": False, "reason": "Exchange bağlı değil", "prices": {}}
+
+        # Binance Futures /fapi/v1/ticker/24hr endpoint'ini çağır
+        # ccxt üzerinden fetch_tickers kullan
+        try:
+            tickers = await dc.exchange.fetch_tickers()
+            prices = {}
+            for sym, t in tickers.items():
+                # Sadece USDT çiftlerini al
+                if not sym.endswith("/USDT"):
+                    continue
+                last = t.get("last") or t.get("close") or 0
+                change = t.get("percentage") or t.get("change") or 0
+                high = t.get("high") or 0
+                low = t.get("low") or 0
+                vol = t.get("quoteVolume") or 0
+                # sembolü BTCUSDT formatına çevir
+                key = sym.replace("/", "")
+                prices[key] = {
+                    "price": float(last or 0),
+                    "change": float(change or 0),
+                    "high": float(high or 0),
+                    "low": float(low or 0),
+                    "quoteVolume": float(vol or 0),
+                }
+            return {"ok": True, "prices": prices, "count": len(prices)}
+        except Exception as e:
+            logger.warning(f"/status/market fetch_tickers hatası: {e}")
+            return {"ok": False, "reason": str(e), "prices": {}}
+    except Exception as e:
+        logger.error(f"/status/market genel hata: {e}")
+        return {"ok": False, "reason": str(e), "prices": {}}
+
+
 @app.get("/execution/positions/live")
 async def live_positions(request: Request):
     """Binance'den canlı pozisyonları çeker."""

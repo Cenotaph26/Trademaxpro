@@ -792,7 +792,25 @@ async function poll(){
       const sym=await apiFetch('/status/symbols');
       if(sym.ok&&sym.symbols){sym.symbols.forEach(s=>{if(!coins[s])coins[s]={price:0,change:0,quoteVolume:0};});renderCoins();buildTicker();}
       loadRiskSettings(ov.risk||{});firstPoll=false;
-      addLog('Dashboard baglandi - Railway API aktif','agent');
+    }
+    // Her poll döngüsünde canlı fiyatları çek
+    const mkt=await apiFetch('/status/market');
+    if(mkt.ok&&mkt.prices){
+      Object.entries(mkt.prices).forEach(([sym,d])=>{
+        // coins objesini güncelle — hem BTCUSDT hem BTC:USDT formatını destekle
+        if(coins[sym]){
+          coins[sym].price=d.price;coins[sym].change=d.change;
+          coins[sym].high=d.high;coins[sym].low=d.low;coins[sym].quoteVolume=d.quoteVolume;
+        } else {
+          coins[sym]={price:d.price,change:d.change,high:d.high,low:d.low,quoteVolume:d.quoteVolume};
+        }
+        const altSym=sym.replace('USDT',':USDT');
+        if(coins[altSym]){
+          coins[altSym].price=d.price;coins[altSym].change=d.change;
+          coins[altSym].high=d.high;coins[altSym].low=d.low;coins[altSym].quoteVolume=d.quoteVolume;
+        }
+      });
+      renderCoins();updateTicker();
     }else{updateTicker();}
 
     // Positions every 4s
