@@ -185,9 +185,9 @@ class SignalScore:
 
     @property
     def side(self) -> Optional[str]:
-        if self.total > 0.20:
+        if self.total > 0.15:
             return "BUY"
-        elif self.total < -0.20:
+        elif self.total < -0.15:
             return "SELL"
         return None
 
@@ -225,13 +225,12 @@ class AutoSignalEngine:
         self.s = settings
         self._running = False
         self.last_signal: Optional[dict] = None
-        self.signal_history: list = []   # Son 200 sinyal — sayfa yenilenince kaybolmaz
         self.signal_count = 0
-        self.scan_interval = 15 * 60  # 15 dakika
+        self.scan_interval = 5 * 60   # 5 dakika
 
         # ── Cooldown: aynı sembol için min 4 saat bekleme ──────────
         self._last_trade_time: dict = {}   # symbol → datetime
-        self._cooldown_hours = 4
+        self._cooldown_hours = 1  # işlem başarılıysa 1 saat cooldown
 
         # ── Multi-symbol mod ──────────────────────────────────────
         top_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
@@ -240,27 +239,34 @@ class AutoSignalEngine:
             if getattr(settings, "MULTI_SYMBOL", True) is not False
             else [getattr(settings, "SYMBOL", "BTCUSDT")]
         )
-        self.scan_interval_min = self.scan_interval // 60  # dashboard'dan değiştirilebilir
-        self.min_signal_score = 0.20  # dashboard'dan değiştirilebilir
 
     # ─────────────────────────────────────────────────────────────
 
     async def start(self):
         self._running = True
+        self._last_scan_time = None
+        consecutive_errors = 0
         logger.info(
             f"🤖 Otomatik Sinyal Motoru başlatıldı "
             f"(interval={self.scan_interval//60}dk, "
             f"semboller={self._target_symbols})"
         )
-        await asyncio.sleep(30)   # Veri yüklenmesini bekle
+        await asyncio.sleep(10)   # Veri yüklenmesini bekle
         while self._running:
             try:
+                self._last_scan_time = datetime.now(timezone.utc)
                 await self._scan_all_symbols()
+                consecutive_errors = 0  # Başarılıysa sıfırla
+            except asyncio.CancelledError:
+                logger.info("🛑 Sinyal motoru iptal edildi")
+                break
             except Exception as e:
-                logger.error(f"Sinyal motoru kritik hata: {e}", exc_info=True)
-            # scan_interval_min değişebilir (dashboard'dan)
-            interval = self.scan_interval_min * 60
-            await asyncio.sleep(interval)
+                consecutive_errors += 1
+                wait = min(60, 10 * consecutive_errors)  # Exponential backoff (max 60sn)
+                logger.error(f"💥 Sinyal motoru hata #{consecutive_errors}: {e} — {wait}sn bekleniyor")
+                await asyncio.sleep(wait)
+                continue  # scan_interval beklemeden devam et
+            await asyncio.sleep(self.scan_interval)
 
     async def _scan_all_symbols(self):
         """Tüm hedef sembolleri sırayla tara."""
@@ -338,13 +344,13 @@ class AutoSignalEngine:
         ema50 = ema(closes_1h, 50)
 
         if ema9 > ema21 > ema50:
-            score.add("EMA", 0.8, f"EMA9({ema9:.0f}) > EMA21({ema21:.0f}) > EMA50({ema50:.0f}) — güçlü yükseliş trendi")
+            score.add("EMA", 0.5, f"EMA9({ema9:.0f}) > EMA21({ema21:.0f}) > EMA50({ema50:.0f}) — güçlü yükseliş trendi")
         elif ema9 > ema21:
-            score.add("EMA", 0.4, f"EMA9 > EMA21 — kısa vadeli yükseliş")
+            score.add("EMA", 0.25, f"EMA9 > EMA21 — kısa vadeli yükseliş")
         elif ema9 < ema21 < ema50:
-            score.add("EMA", -0.8, f"EMA9({ema9:.0f}) < EMA21({ema21:.0f}) < EMA50({ema50:.0f}) — güçlü düşüş trendi")
+            score.add("EMA", -0.5, f"EMA9({ema9:.0f}) < EMA21({ema21:.0f}) < EMA50({ema50:.0f}) — güçlü düşüş trendi")
         elif ema9 < ema21:
-            score.add("EMA", -0.4, "EMA9 < EMA21 — kısa vadeli düşüş")
+            score.add("EMA", -0.25, "EMA9 < EMA21 — kısa vadeli düşüş")
         else:
             score.add("EMA", 0.0, "EMA nötr")
 
@@ -353,13 +359,13 @@ class AutoSignalEngine:
         rsi_5m  = rsi(closes_5m, 14) if len(closes_5m) > 14 else rsi_val
 
         if rsi_val < 30:
-            score.add("RSI", 0.9, f"RSI={rsi_val:.1f} — aşırı satım, güçlü alım sinyali")
+            score.add("RSI", 1.0, f"RSI={rsi_val:.1f} — aşırı satım, güçlü alım sinyali")
         elif rsi_val < 40:
-            score.add("RSI", 0.5, f"RSI={rsi_val:.1f} — satım bölgesi")
+            score.add("RSI", 0.6, f"RSI={rsi_val:.1f} — satım bölgesi")
         elif rsi_val > 70:
-            score.add("RSI", -0.9, f"RSI={rsi_val:.1f} — aşırı alım, güçlü satım sinyali")
+            score.add("RSI", -1.0, f"RSI={rsi_val:.1f} — aşırı alım, güçlü satım sinyali")
         elif rsi_val > 60:
-            score.add("RSI", -0.5, f"RSI={rsi_val:.1f} — alım bölgesi")
+            score.add("RSI", -0.6, f"RSI={rsi_val:.1f} — alım bölgesi")
         else:
             score.add("RSI", 0.0, f"RSI={rsi_val:.1f} — nötr bölge")
 
@@ -460,25 +466,16 @@ class AutoSignalEngine:
         for detail in score.details:
             logger.info(f"   → {detail}")
 
-        # Dashboard'dan ayarlanabilir min skor kontrolü
-        if abs(total) < self.min_signal_score:
-            side = None
-
         if side is None:
-            logger.info(f"⏭ Yeterli sinyal yok (skor={total:+.3f} < min={self.min_signal_score:.2f})")
-            _skip_sig = {
+            logger.info("⏭ Yeterli sinyal yok, işlem atlandı")
+            self.last_signal = {
                 "time": datetime.now(timezone.utc).isoformat(),
                 "symbol": symbol,
                 "side": None,
                 "score": round(total, 3),
                 "strength": score.strength,
                 "details": score.details,
-                "action": "skip",
             }
-            self.last_signal = _skip_sig
-            self.signal_history.insert(0, _skip_sig)
-            if len(self.signal_history) > 200:
-                self.signal_history.pop()
             return
 
         # ── RL Agent Denetimi ─────────────────────────────────────
@@ -487,7 +484,7 @@ class AutoSignalEngine:
             try:
                 decision = self.rl.decide()
                 # RL henüz eğitilmemişse (epsilon yüksek) trade_allowed'ı ignore et
-                if not decision.trade_allowed and self.rl.epsilon < 0.15:
+                if not decision.trade_allowed and self.rl.epsilon < 0.5:
                     logger.info(f"🤖 RL agent işlemi engelledi (ε={self.rl.epsilon:.3f})")
                     return
                 elif not decision.trade_allowed:
@@ -534,26 +531,21 @@ class AutoSignalEngine:
 
         # ── Sonuç kaydet ──────────────────────────────────────────
         self.signal_count += 1
-        self._set_cooldown(symbol)   # Cooldown başlat
+        # Cooldown sadece başarılı işlemde başlasın
+        ok = result.get("ok") if isinstance(result, dict) else bool(result)
+        if ok:
+            self._set_cooldown(symbol)
 
-        _ok = result.get("ok") if isinstance(result, dict) else False
-        _entry_price = result.get("entry_price", 0) if isinstance(result, dict) else 0
-        sig_entry2 = {
+        self.last_signal = {
             "time": datetime.now(timezone.utc).isoformat(),
             "symbol": symbol,
             "side": side,
             "score": round(total, 3),
             "strength": score.strength,
             "strategy": result.get("strategy") if isinstance(result, dict) else None,
-            "ok": _ok,
-            "entry_price": _entry_price,
+            "ok": result.get("ok") if isinstance(result, dict) else False,
             "details": score.details,
-            "action": "trade" if _ok else "rejected",
         }
-        self.last_signal = sig_entry2
-        self.signal_history.insert(0, sig_entry2)
-        if len(self.signal_history) > 200:
-            self.signal_history.pop()
 
         if isinstance(result, dict) and result.get("ok"):
             logger.info(f"✅ İşlem açıldı: {result}")
@@ -566,15 +558,15 @@ class AutoSignalEngine:
     def get_status(self) -> dict:
         return {
             "running": self._running,
-            "scan_interval_min": self.scan_interval_min,
+            "scan_interval_min": self.scan_interval // 60,
+            "last_scan_time": self._last_scan_time.isoformat() if getattr(self, "_last_scan_time", None) else None,
             "signal_count": self.signal_count,
             "trade_count": self.signal_count,
             "last_signal": self.last_signal,
-            "signal_history": self.signal_history[:50],  # Son 50'yi gönder
             "cooldowns": {
                 sym: self._last_trade_time[sym].isoformat()
                 for sym in self._last_trade_time
             },
             "target_symbols": self._target_symbols,
-            "min_signal_score": self.min_signal_score,
+            "min_signal_score": getattr(self, "min_signal_score", 0.20),
         }

@@ -36,10 +36,7 @@ class CloseRequest(BaseModel):
 
 def _safe_str(e: Exception) -> str:
     """Exception → string. Hiçbir zaman [object Object] döndürmez."""
-    msg = str(e)
-    if not msg or msg == "None":
-        return type(e).__name__
-    return msg
+    return str(e) if str(e) else type(e).__name__
 
 
 def _get_positions(risk_engine) -> list:
@@ -111,18 +108,8 @@ async def open_trade(request: Request, body: TradeRequest):
         return {"ok": bool(result), "symbol": body.symbol}
 
     except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        logger.error(f"open_trade hatası [{body.symbol}]: {e}\n{tb}")
-        reason = _safe_str(e)
-        # AttributeError: 'NoneType' → anlamlı mesaj
-        if "NoneType" in reason or "has no attribute" in reason:
-            reason = "Exchange bağlantısı hazır değil — birkaç saniye bekleyip tekrar deneyin"
-        elif "not enough balance" in reason.lower() or "insufficient" in reason.lower():
-            reason = "Yetersiz bakiye"
-        elif "quantity" in reason.lower() or "lot" in reason.lower() or "precision" in reason.lower():
-            reason = "Miktar/lot hassasiyeti hatası — daha büyük miktar deneyin"
-        return {"ok": False, "reason": reason}
+        logger.error(f"open_trade hatası [{body.symbol}]: {e}", exc_info=True)
+        return {"ok": False, "reason": _safe_str(e)}
 
 
 # ─── /execution/close ────────────────────────────────────────────────────────

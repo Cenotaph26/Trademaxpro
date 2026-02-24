@@ -48,13 +48,7 @@ class StrategyManager:
         self._initialized = False
 
     def _ensure_init(self):
-        if self._initialized:
-            return
-        # Exchange henüz hazır değilse bekle (her çağrıda tekrar denenecek)
-        if not self.data.exchange:
-            logger.warning("_ensure_init: exchange henüz hazır değil")
-            return
-        try:
+        if not self._initialized and self.data.exchange:
             self.executor = OrderExecutor(self.data.exchange, self.s)
             self.dca = DCAStrategy(self.executor, self.risk, self.data, self.s)
             self.grid = GridStrategy(self.executor, self.risk, self.data, self.s)
@@ -62,10 +56,6 @@ class StrategyManager:
             self._initialized = True
             asyncio.create_task(self.dca.monitor_all())
             asyncio.create_task(self.grid.monitor_all())
-            logger.info("✅ StrategyManager başlatıldı")
-        except Exception as e:
-            logger.error(f"_ensure_init hatası: {e} — sonraki çağrıda tekrar denenecek")
-            # _initialized=False kalsın, bir sonraki çağrıda tekrar dene
 
     def set_rl_agent(self, agent):
         self.rl_agent = agent
@@ -79,14 +69,6 @@ class StrategyManager:
                   order_type, strategy_tag, entry_hint}
         """
         self._ensure_init()
-        # Executor None ise bir kez daha init dene (exchange geç hazır olmuş olabilir)
-        if not self.executor:
-            self._initialized = False  # force retry
-            self._ensure_init()
-        if not self.executor:
-            err = "Exchange bağlantısı hazır değil - bot henüz başlatılıyor olabilir (5-10sn bekleyin)"
-            logger.error(err)
-            return {"ok": False, "reason": err}
         symbol = signal.get("symbol", self.s.SYMBOL)
         side   = signal.get("side", "BUY").upper()
 
@@ -116,6 +98,11 @@ class StrategyManager:
         # ── 2. Risk engine check ───────────────────────────────────
         # Önce pozisyon sayılarını güncelle (güncel veri ile)
         await self._update_position_counts(symbol)
+        try:
+            bal = await self.data.get_balance()
+            await self.risk.update_equity(bal.get("total", 0))
+        except Exception:
+            pass
         can, reason = self.risk.can_trade(side, symbol)
         if not can:
             return {"ok": False, "reason": reason}
@@ -125,39 +112,26 @@ class StrategyManager:
         decision = None
         if self.rl_agent and not is_manual:
             decision = self.rl_agent.decide()
-            logger.info(f"🤖 RL: {decision.strategy} | {decision.risk_mode} | trade={decision.trade_allowed}")
-            if not decision.trade_allowed:
+            if not decision.trade_allowed and self.rl_agent.epsilon < 0.5:
+                logger.info(f"🤖 RL engelledi (ε={self.rl_agent.epsilon:.3f})")
                 return {"ok": False, "reason": "RL agent: trade_allowed=0"}
+            elif not decision.trade_allowed:
+                logger.info(f"🤖 RL eğitim aşaması (ε={self.rl_agent.epsilon:.3f}) — bypass")
+            logger.info(f"🤖 RL: {decision.strategy} | {decision.risk_mode} | trade={decision.trade_allowed}")
 
         risk_mode_str = decision.risk_mode if decision else "normal"
         actual_leverage = leverage  # dashboard'dan gelen kaldıracı kullan
 
         # ── 4. Kaldıraç ayarla ─────────────────────────────────────
-        try:
-            await self.executor.set_leverage(symbol, actual_leverage)
-        except Exception as e:
-            logger.warning(f"Kaldıraç ayarlanamadı [{symbol}]: {e} — devam ediliyor")
+        await self.executor.set_leverage(symbol, actual_leverage)
 
         # ── 5. Sembol fiyatını al ──────────────────────────────────
         # Önce BTC mi kontrol et, değilse anlık fiyat çek
-        # Market cache'den anlık fiyat al (önce)
-        mark = 0.0
-        try:
-            mc = getattr(self.data, "_market_cache", {})
-            sym_clean = symbol.replace("USDT","").upper()
-            for k,v in mc.items():
-                if k.replace("USDT","").upper() == sym_clean:
-                    mark = float(v.get("price") or 0)
-                    break
-        except Exception:
-            pass
-
-        if mark <= 0:
-            if symbol.upper() == self.s.SYMBOL.upper():
-                mark = state.mark_price
-            else:
-                mark = await _get_symbol_price(self.data.exchange, symbol, fallback=state.mark_price)
-        logger.info(f"[{symbol}] Fiyat: {mark}")
+        if symbol.upper() == self.s.SYMBOL.upper():
+            mark = state.mark_price
+        else:
+            mark = await _get_symbol_price(self.data.exchange, symbol, fallback=state.mark_price)
+            logger.info(f"[{symbol}] Anlık fiyat: {mark}")
 
         if mark <= 0:
             return {"ok": False, "reason": f"[{symbol}] Geçerli fiyat alınamadı"}
@@ -234,26 +208,7 @@ class StrategyManager:
 
         ok = result is not None
         logger.info(f"{'✅' if ok else '❌'} İşlem {'açıldı' if ok else 'başarısız'}: {symbol} {side}")
-
-        # ── Trade kaydını risk engine'e ilet (history + stats için) ──
-        if ok:
-            try:
-                trade_rec = TradeRecord(
-                    pnl=0.0,          # pozisyon açılışta PnL 0, kapanışta güncellenir
-                    timestamp=datetime.utcnow(),
-                    side=side,
-                    strategy=signal.get("strategy_tag", "auto"),
-                    symbol=symbol,
-                    leverage=actual_leverage,
-                    pnl_pct=0.0,
-                )
-                await self.risk.record_trade(trade_rec)
-                logger.info(f"📋 Trade kaydedildi: {symbol} {side} {actual_leverage}x")
-            except Exception as e:
-                logger.warning(f"Trade kaydı hatası: {e}")
-
-        return {"ok": ok, "symbol": symbol, "side": side, "leverage": actual_leverage,
-                "entry_price": mark, "tp_pct": tp_pct, "sl_pct": sl_pct}
+        return {"ok": ok, "symbol": symbol, "side": side, "leverage": actual_leverage}
 
     async def _update_position_counts(self, symbol: str = ""):
         try:

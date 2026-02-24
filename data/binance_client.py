@@ -47,7 +47,6 @@ class BinanceDataClient:
         self.state = MarketState()
         self._running = False
         self._auth_ok = False  # auth başarılı mı?
-        self._market_cache = {}  # {symbol: {price, change, ...}} - market endpoint ile dolduruluyor
 
     async def connect(self):
         params = {
@@ -121,74 +120,61 @@ class BinanceDataClient:
             logger.warning(f"OI alınamadı: {e}")
 
     async def fetch_klines(self, timeframe: str = "1h", limit: int = 200):
-        try:
-            ohlcv = await self.exchange.fetch_ohlcv(
-                self.settings.SYMBOL, timeframe=timeframe, limit=limit
-            )
-            candles = [
-                {
-                    "ts": c[0], "open": c[1], "high": c[2],
-                    "low": c[3], "close": c[4], "volume": c[5]
-                }
-                for c in ohlcv
-            ]
-            if timeframe == "1m":
-                self.state.klines_1m.clear()
-                self.state.klines_1m.extend(candles)
-            elif timeframe == "5m":
-                self.state.klines_5m.clear()
-                self.state.klines_5m.extend(candles)
-            elif timeframe == "1h":
-                self.state.klines_1h.clear()
-                self.state.klines_1h.extend(candles)
-                self._compute_atr_and_regime()
-            return candles
-        except asyncio.CancelledError:
-            raise  # CancelledError'ı yukarıya ilet — yakalama
-        except Exception as e:
-            logger.warning(f"fetch_klines [{timeframe}] hatası: {e}")
-            return []
+        ohlcv = await self.exchange.fetch_ohlcv(
+            self.settings.SYMBOL, timeframe=timeframe, limit=limit
+        )
+        candles = [
+            {
+                "ts": c[0], "open": c[1], "high": c[2],
+                "low": c[3], "close": c[4], "volume": c[5]
+            }
+            for c in ohlcv
+        ]
+        if timeframe == "1m":
+            self.state.klines_1m.clear()
+            self.state.klines_1m.extend(candles)
+        elif timeframe == "5m":
+            self.state.klines_5m.clear()
+            self.state.klines_5m.extend(candles)
+        elif timeframe == "1h":
+            self.state.klines_1h.clear()
+            self.state.klines_1h.extend(candles)
+            self._compute_atr_and_regime()
+        return candles
 
     # ─── Computed indicators ──────────────────────────────────────
 
     def _compute_atr_and_regime(self, period: int = 14):
-        try:
-            candles = list(self.state.klines_1h)
-            if len(candles) < period + 1:
-                return
-            trs = []
-            for i in range(1, len(candles)):
-                h = candles[i]["high"]
-                l = candles[i]["low"]
-                pc = candles[i - 1]["close"]
-                if h is None or l is None or pc is None:
-                    continue
-                trs.append(max(h - l, abs(h - pc), abs(l - pc)))
-            if not trs:
-                return
-            atr = sum(trs[-period:]) / period
-            self.state.atr_14 = atr
+        candles = list(self.state.klines_1h)
+        if len(candles) < period + 1:
+            return
+        trs = []
+        for i in range(1, len(candles)):
+            h = candles[i]["high"]
+            l = candles[i]["low"]
+            pc = candles[i - 1]["close"]
+            trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+        atr = sum(trs[-period:]) / period
+        self.state.atr_14 = atr
 
-            closes = [c["close"] for c in candles[-21:]]
-            returns = [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(1, len(closes))]
-            if returns:
-                mean = sum(returns) / len(returns)
-                variance = sum((r - mean) ** 2 for r in returns) / len(returns)
-                self.state.volatility_1h = variance ** 0.5
+        closes = [c["close"] for c in candles[-21:]]
+        returns = [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(1, len(closes))]
+        if returns:
+            mean = sum(returns) / len(returns)
+            variance = sum((r - mean) ** 2 for r in returns) / len(returns)
+            self.state.volatility_1h = variance ** 0.5
 
-            recent = candles[-20:]
-            total_range = sum(c["high"] - c["low"] for c in recent) / 20
-            net_move = abs(recent[-1]["close"] - recent[0]["close"])
-            ratio = net_move / (total_range + 1e-9)
+        recent = candles[-20:]
+        total_range = sum(c["high"] - c["low"] for c in recent) / 20
+        net_move = abs(recent[-1]["close"] - recent[0]["close"])
+        ratio = net_move / (total_range + 1e-9)
 
-            if self.state.volatility_1h > 0.015:
-                self.state.regime = "volatile"
-            elif ratio > 0.5:
-                self.state.regime = "trend"
-            else:
-                self.state.regime = "range"
-        except Exception as e:
-            logger.warning(f"ATR/regime hesap hatası: {e}")
+        if self.state.volatility_1h > 0.015:
+            self.state.regime = "volatile"
+        elif ratio > 0.5:
+            self.state.regime = "trend"
+        else:
+            self.state.regime = "range"
 
     async def get_balance(self) -> dict:
         balance = await self.exchange.fetch_balance()
@@ -251,31 +237,15 @@ class BinanceDataClient:
 
                 await self.fetch_mark_price()
                 await self.fetch_funding_rate()
-                try:
-                    await self.fetch_klines("1h", 200)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.warning(f"1h klines atlandı: {e}")
-                try:
-                    await self.fetch_klines("5m", 100)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.warning(f"5m klines atlandı: {e}")
+                await self.fetch_klines("1h", 200)
+                await self.fetch_klines("5m", 100)
                 await self._update_account()
                 self.state.updated_at = datetime.utcnow()
 
-            except asyncio.CancelledError:
-                logger.info("Market data stream iptal edildi")
-                return  # Temiz çıkış — crash yok
             except ccxt.AuthenticationError as e:
                 logger.error(f"❌ Stream auth hatası: {e}")
                 self._auth_ok = False
                 await asyncio.sleep(60)
-            except SystemExit:
-                logger.info("Market data stream SystemExit")
-                return
             except Exception as e:
                 logger.error(f"Market data hatası: {e}")
                 await asyncio.sleep(10)
