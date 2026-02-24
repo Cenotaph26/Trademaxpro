@@ -754,8 +754,20 @@ function buildStats(d){
     _lastHistory=d.history;D.history=d.history;buildHistory();
   }
 
-  // Pull last signal
-  if(se.last_signal&&JSON.stringify(se.last_signal)!==JSON.stringify(lastSignalData)){
+  // Pull signals from backend history (kalıcı)
+  if(se.signal_history&&se.signal_history.length>0){
+    const existing=new Set(signalHistory.map(s=>s.time+'_'+(s.symbol||'')));
+    for(const sig of se.signal_history){
+      const key=sig.time+'_'+(sig.symbol||'');
+      if(!existing.has(key)){
+        signalHistory.unshift(sig);
+        existing.add(key);
+      }
+    }
+    if(signalHistory.length>200)signalHistory.splice(200);
+    document.getElementById('sig-cnt').textContent=signalHistory.length;
+    renderSignals();
+  } else if(se.last_signal&&JSON.stringify(se.last_signal)!==JSON.stringify(lastSignalData)){
     lastSignalData=se.last_signal;addSignalCard(se.last_signal);
   }
 }
@@ -968,6 +980,30 @@ function openModal(sym){const c=coins[sym]||coins[sym.replace('USDT','')+':USDT'
   document.getElementById('modal').classList.add('open');setTimeout(()=>drawCandles(pos.klines||[],pos.entry_price,pos.tp,pos.sl,pos.side,'modal-cv',150),60);}
 function closeModal(){document.getElementById('modal').classList.remove('open');}
 
+// ═══ KALICI SİNYAL GEÇMİŞİ ══════════════════════════════
+async function loadSignalHistory(){
+  const res=await apiFetch('/status/signals');
+  if(!res||!res.ok||!res.signals?.length) return;
+  // Mevcut olanları ekle (duplicate önle: time+symbol key)
+  const existing=new Set(signalHistory.map(s=>s.time+'_'+(s.symbol||'')));
+  let added=0;
+  for(const sig of res.signals){
+    const key=sig.time+'_'+(sig.symbol||'');
+    if(!existing.has(key)){
+      signalHistory.push(sig);
+      existing.add(key);
+      added++;
+    }
+  }
+  // Zaman sırasına göre sırala (en yeni başta)
+  signalHistory.sort((a,b)=>new Date(b.time)-new Date(a.time));
+  if(signalHistory.length>200)signalHistory.splice(200);
+  if(added>0){
+    renderSignals();
+    document.getElementById('sig-cnt').textContent=signalHistory.length;
+  }
+}
+
 // ═══ MANUEL İŞLEM MODAL ══════════════════════════════════
 let _tradeSym='', _tradeSide='BUY', _tradeLev=1;
 
@@ -1159,7 +1195,15 @@ async function poll(){
 }
 
 // ═══ INIT ════════════════════════════════════════════════
-initHover();poll();loadPositions();setInterval(poll,2000);setInterval(loadPositions,5000);setInterval(()=>{apiFetch('/status/market').then(mkt=>{if(mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){const nc={};Object.entries(mkt.prices).forEach(([s,d])=>{nc[s]={price:parseFloat(d.price)||0,change:parseFloat(d.change)||0,high:parseFloat(d.high)||0,low:parseFloat(d.low)||0,quoteVolume:parseFloat(d.quoteVolume)||0};});Object.keys(coins).forEach(k=>delete coins[k]);Object.assign(coins,nc);renderCoins();updateTicker();}});},3000);
+initHover();poll();loadPositions();loadSignalHistory();
+setInterval(poll,2000);
+setInterval(loadPositions,5000);
+setInterval(loadSignalHistory,30000);
+// Sayfa açılışında hemen overview çek (trade history dahil)
+setTimeout(async()=>{
+  const ov=await apiFetch('/status/overview');
+  if(ov&&ov.history&&ov.history.length>0){D.history=ov.history;buildHistory();}
+},500);setInterval(()=>{apiFetch('/status/market').then(mkt=>{if(mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){const nc={};Object.entries(mkt.prices).forEach(([s,d])=>{nc[s]={price:parseFloat(d.price)||0,change:parseFloat(d.change)||0,high:parseFloat(d.high)||0,low:parseFloat(d.low)||0,quoteVolume:parseFloat(d.quoteVolume)||0};});Object.keys(coins).forEach(k=>delete coins[k]);Object.assign(coins,nc);renderCoins();updateTicker();}});},3000);
 window.addEventListener('resize',()=>{if(chartMode==='pnl')drawPnlChart();});
 // Default strategies while waiting
 setTimeout(()=>{if(!Object.keys(D.strategies||{}).length){D.strategies={'Mean Reversion':{score:1.66,wr:38.1,trades:0},'Breakout':{score:1.42,wr:33.3,trades:0},'Trend Following':{score:1.30,wr:30.4,trades:0},'Scalping':{score:0.70,wr:15.4,trades:0},'VWAP Bounce':{score:0.64,wr:10.0,trades:0}};buildStrategies();}},1500);

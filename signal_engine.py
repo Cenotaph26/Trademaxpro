@@ -225,6 +225,7 @@ class AutoSignalEngine:
         self.s = settings
         self._running = False
         self.last_signal: Optional[dict] = None
+        self.signal_history: list = []   # Son 200 sinyal — sayfa yenilenince kaybolmaz
         self.signal_count = 0
         self.scan_interval = 15 * 60  # 15 dakika
 
@@ -465,14 +466,19 @@ class AutoSignalEngine:
 
         if side is None:
             logger.info(f"⏭ Yeterli sinyal yok (skor={total:+.3f} < min={self.min_signal_score:.2f})")
-            self.last_signal = {
+            _skip_sig = {
                 "time": datetime.now(timezone.utc).isoformat(),
                 "symbol": symbol,
                 "side": None,
                 "score": round(total, 3),
                 "strength": score.strength,
                 "details": score.details,
+                "action": "skip",
             }
+            self.last_signal = _skip_sig
+            self.signal_history.insert(0, _skip_sig)
+            if len(self.signal_history) > 200:
+                self.signal_history.pop()
             return
 
         # ── RL Agent Denetimi ─────────────────────────────────────
@@ -530,16 +536,24 @@ class AutoSignalEngine:
         self.signal_count += 1
         self._set_cooldown(symbol)   # Cooldown başlat
 
-        self.last_signal = {
+        _ok = result.get("ok") if isinstance(result, dict) else False
+        _entry_price = result.get("entry_price", 0) if isinstance(result, dict) else 0
+        sig_entry2 = {
             "time": datetime.now(timezone.utc).isoformat(),
             "symbol": symbol,
             "side": side,
             "score": round(total, 3),
             "strength": score.strength,
             "strategy": result.get("strategy") if isinstance(result, dict) else None,
-            "ok": result.get("ok") if isinstance(result, dict) else False,
+            "ok": _ok,
+            "entry_price": _entry_price,
             "details": score.details,
+            "action": "trade" if _ok else "rejected",
         }
+        self.last_signal = sig_entry2
+        self.signal_history.insert(0, sig_entry2)
+        if len(self.signal_history) > 200:
+            self.signal_history.pop()
 
         if isinstance(result, dict) and result.get("ok"):
             logger.info(f"✅ İşlem açıldı: {result}")
@@ -556,6 +570,7 @@ class AutoSignalEngine:
             "signal_count": self.signal_count,
             "trade_count": self.signal_count,
             "last_signal": self.last_signal,
+            "signal_history": self.signal_history[:50],  # Son 50'yi gönder
             "cooldowns": {
                 sym: self._last_trade_time[sym].isoformat()
                 for sym in self._last_trade_time

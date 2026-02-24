@@ -538,8 +538,23 @@ async def _market_cache_loop():
 @app.get("/status/positions")
 async def status_positions(request: Request):
     """Kısa yol: /execution/positions/live ile aynı ama hata toleranslı."""
-    from fastapi import Request as Req
     return await live_positions(request)
+
+
+@app.get("/status/signals")
+async def status_signals(request: Request):
+    """Sayfa yenilenince kaybolmayan kalıcı sinyal geçmişi."""
+    try:
+        se = request.app.state.signal_engine
+        history = getattr(se, "signal_history", [])
+        return {
+            "ok": True,
+            "signals": history,
+            "count": len(history),
+            "last": history[0] if history else None,
+        }
+    except Exception as e:
+        return {"ok": False, "signals": [], "count": 0, "reason": str(e)}
 
 
 @app.get("/status/market")
