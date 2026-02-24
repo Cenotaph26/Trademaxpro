@@ -535,7 +535,8 @@ async def live_positions(request: Request):
         # Auth durumundan bağımsız - her zaman pozisyon çekmeye çalış
         raw = []
         try:
-            raw = await dc.exchange.fetch_positions()
+            # symbols=None → tüm açık pozisyonlar (belirli sembol değil)
+            raw = await dc.exchange.fetch_positions(symbols=None)
         except Exception as e1:
             logger.warning(f"fetch_positions hatası: {e1}")
             try:

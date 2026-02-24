@@ -459,7 +459,84 @@ header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;ba
   </div>
 </div><!-- /main -->
 
-<!-- MODAL -->
+<!-- TRADE MODAL -->
+<div class="moverlay" id="trade-modal" onclick="if(event.target===this)closeTrade()">
+  <div class="modal" style="width:420px;max-width:96vw">
+    <div class="modal-hd">
+      <div>
+        <div class="modal-sym" id="tm-sym" style="font-size:14px">-- / USDT</div>
+        <div style="font-size:8px;color:var(--dim);margin-top:2px">
+          Fiyat: <span id="tm-price" style="color:var(--cyan)">--</span>
+          &nbsp;·&nbsp; 24s: <span id="tm-chg">--</span>
+        </div>
+      </div>
+      <button class="modal-x" onclick="closeTrade()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:12px 14px">
+
+      <!-- LONG / SHORT seçim -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+        <button id="tm-long-btn" onclick="setTradeSide('BUY')"
+          style="padding:10px;background:rgba(0,255,148,.1);border:2px solid var(--green);border-radius:var(--r2);color:var(--green);font-family:var(--dsp);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:2px;transition:.15s">
+          ▲ LONG
+        </button>
+        <button id="tm-short-btn" onclick="setTradeSide('SELL')"
+          style="padding:10px;background:rgba(255,45,85,.05);border:1px solid var(--b2);border-radius:var(--r2);color:var(--dim);font-family:var(--dsp);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:2px;transition:.15s">
+          ▼ SHORT
+        </button>
+      </div>
+
+      <!-- Parametreler -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div>
+          <div style="font-size:7px;letter-spacing:1.5px;color:var(--dim);margin-bottom:4px;text-transform:uppercase">Miktar (USDT)</div>
+          <input id="tm-qty" type="number" value="50" min="5" step="5"
+            style="width:100%;background:var(--s2);border:1px solid var(--b2);border-radius:var(--r);padding:7px 10px;color:var(--cyan);font-family:var(--mono);font-size:14px;font-weight:700;outline:none;text-align:center"
+            onfocus="this.style.borderColor='var(--cyan)'" onblur="this.style.borderColor='var(--b2)'">
+        </div>
+        <div>
+          <div style="font-size:7px;letter-spacing:1.5px;color:var(--dim);margin-bottom:4px;text-transform:uppercase">Kaldıraç</div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:3px" id="tm-lev-btns">
+            <button onclick="setTradeLev(1,this)" style="padding:5px 2px;background:rgba(0,229,255,.1);border:1px solid var(--cyan);border-radius:var(--r);color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer">1x</button>
+            <button onclick="setTradeLev(3,this)" style="padding:5px 2px;background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--dim);font-family:var(--mono);font-size:9px;cursor:pointer">3x</button>
+            <button onclick="setTradeLev(5,this)" style="padding:5px 2px;background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--dim);font-family:var(--mono);font-size:9px;cursor:pointer">5x</button>
+            <button onclick="setTradeLev(10,this)" style="padding:5px 2px;background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--dim);font-family:var(--mono);font-size:9px;cursor:pointer">10x</button>
+            <button onclick="setTradeLev(20,this)" style="padding:5px 2px;background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--dim);font-family:var(--mono);font-size:9px;cursor:pointer">20x</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:7px;letter-spacing:1.5px;color:var(--dim);margin-bottom:4px;text-transform:uppercase">Take Profit %</div>
+          <input id="tm-tp" type="number" value="3.0" min="0.1" step="0.1"
+            style="width:100%;background:var(--s2);border:1px solid rgba(0,255,148,.2);border-radius:var(--r);padding:7px 10px;color:var(--green);font-family:var(--mono);font-size:13px;font-weight:700;outline:none;text-align:center"
+            onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='rgba(0,255,148,.2)'">
+        </div>
+        <div>
+          <div style="font-size:7px;letter-spacing:1.5px;color:var(--dim);margin-bottom:4px;text-transform:uppercase">Stop Loss %</div>
+          <input id="tm-sl" type="number" value="1.5" min="0.1" step="0.1"
+            style="width:100%;background:var(--s2);border:1px solid rgba(255,45,85,.2);border-radius:var(--r);padding:7px 10px;color:var(--red);font-family:var(--mono);font-size:13px;font-weight:700;outline:none;text-align:center"
+            onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='rgba(255,45,85,.2)'">
+        </div>
+      </div>
+
+      <!-- Özet satır -->
+      <div id="tm-summary" style="background:var(--s2);border:1px solid var(--b);border-radius:var(--r2);padding:8px 10px;margin-bottom:10px;font-size:8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;text-align:center">
+        <div style="color:var(--dim)">Notional<br><b id="tm-notional" style="color:var(--text);font-size:10px">--</b></div>
+        <div style="color:var(--dim)">TP Fiyat<br><b id="tm-tp-price" style="color:var(--green);font-size:10px">--</b></div>
+        <div style="color:var(--dim)">SL Fiyat<br><b id="tm-sl-price" style="color:var(--red);font-size:10px">--</b></div>
+      </div>
+
+      <!-- Submit butonu -->
+      <button id="tm-submit" onclick="submitTrade()"
+        style="width:100%;padding:12px;background:linear-gradient(135deg,rgba(0,255,148,.2),rgba(0,229,255,.1));border:1px solid var(--green);border-radius:var(--r2);color:var(--green);font-family:var(--dsp);font-size:13px;font-weight:700;cursor:pointer;letter-spacing:3px;transition:.2s"
+        onmouseover="this.style.filter='brightness(1.2)'" onmouseout="this.style.filter=''">
+        ▲ LONG AÇ
+      </button>
+      <div id="tm-result" style="text-align:center;font-size:9px;margin-top:6px;height:16px;color:var(--green)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- COIN MODAL -->
 <div class="moverlay" id="modal" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-hd">
@@ -559,7 +636,17 @@ function renderCoins(){
   let h=entries.map(([s,c])=>{
     const label=s.replace(':USDT','').replace('USDT','');const chg=c.change||0;
     const vol=c.quoteVolume>1e9?(c.quoteVolume/1e9).toFixed(1)+'B':c.quoteVolume>1e6?(c.quoteVolume/1e6).toFixed(0)+'M':'';
-    return '<div class="cc'+(hp(s)?' hp':'')+'" onclick="openModal(\''+s+'\')">'+'<div class="cc-n">'+label+'</div><div class="cc-p">$'+fp(c.price)+'</div><div style="display:flex;justify-content:space-between;align-items:center"><div class="cc-c '+(chg>=0?'uc':'dc')+'">'+(chg>=0?'+':'')+chg.toFixed(2)+'%</div>'+(vol?'<div class="cc-v">'+vol+'</div>':'')+' </div></div>';
+    return '<div class="cc'+(hp(s)?' hp':'')+'">'+
+      '<div onclick="openModal(\''+s+'\')">'+
+      '<div class="cc-n">'+label+'</div><div class="cc-p">$'+fp(c.price)+'</div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:center">'+
+      '<div class="cc-c '+(chg>=0?'uc':'dc')+'">'+(chg>=0?'+':'')+chg.toFixed(2)+'%</div>'+
+      (vol?'<div class="cc-v">'+vol+'</div>':'')+
+      '</div></div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;margin-top:3px">'+
+      '<button onclick="event.stopPropagation();openTrade(\''+s+'\',\'BUY\')" style="padding:3px 0;background:rgba(0,255,148,.1);border:1px solid rgba(0,255,148,.3);border-radius:2px;color:var(--green);font-family:var(--mono);font-size:8px;font-weight:700;cursor:pointer" onmouseover="this.style.background=\'rgba(0,255,148,.22)\'" onmouseout="this.style.background=\'rgba(0,255,148,.1)\'">▲ L</button>'+
+      '<button onclick="event.stopPropagation();openTrade(\''+s+'\',\'SELL\')" style="padding:3px 0;background:rgba(255,45,85,.07);border:1px solid rgba(255,45,85,.25);border-radius:2px;color:var(--red);font-family:var(--mono);font-size:8px;font-weight:700;cursor:pointer" onmouseover="this.style.background=\'rgba(255,45,85,.18)\'" onmouseout="this.style.background=\'rgba(255,45,85,.07)\'">▼ S</button>'+
+      '</div></div>';
   }).join('');
   document.getElementById('cg').innerHTML=h||'<div class="empty" style="grid-column:1/-1">Coin bulunamadi</div>';
   document.getElementById('coin-lbl').textContent=entries.length+' coin';
@@ -857,8 +944,125 @@ async function saveRisk(){
 }
 
 // ═══ MODAL ═══════════════════════════════════════════════
-function openModal(sym){const c=coins[sym]||coins[sym.replace('USDT','')+':USDT']||{};const pos=positions[sym]||{};document.getElementById('m-sym').textContent=sym.replace(':USDT','').replace('USDT','')+'/USDT';document.getElementById('m-price').textContent='$'+fp(c.price);const chg=c.change||0;document.getElementById('m-chg').textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';document.getElementById('m-chg').className='ms-v '+(chg>=0?'c-green':'c-red');document.getElementById('m-hi').textContent='$'+fp(c.high);document.getElementById('m-lo').textContent='$'+fp(c.low);const vol2=(c.quoteVolume||0);document.getElementById('m-vol2').textContent=vol2>1e9?(vol2/1e9).toFixed(2)+'B USDT':( vol2/1e6).toFixed(1)+'M USDT';document.getElementById('modal').classList.add('open');setTimeout(()=>drawCandles(pos.klines||[],pos.entry_price,pos.tp,pos.sl,pos.side,'modal-cv',150),60);}
+function openModal(sym){const c=coins[sym]||coins[sym.replace('USDT','')+':USDT']||{};const pos=positions[sym]||{};document.getElementById('m-sym').textContent=sym.replace(':USDT','').replace('USDT','')+'/USDT';document.getElementById('m-price').textContent='$'+fp(c.price);const chg=c.change||0;document.getElementById('m-chg').textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';document.getElementById('m-chg').className='ms-v '+(chg>=0?'c-green':'c-red');document.getElementById('m-hi').textContent='$'+fp(c.high);document.getElementById('m-lo').textContent='$'+fp(c.low);const vol2=(c.quoteVolume||0);document.getElementById('m-vol2').textContent=vol2>1e9?(vol2/1e9).toFixed(2)+'B USDT':( vol2/1e6).toFixed(1)+'M USDT';
+  // Coin modal içine LONG/SHORT butonları ekle
+  const mBody=document.querySelector('#modal .modal-body');
+  let tradeRow=document.getElementById('m-trade-row');
+  if(!tradeRow){
+    tradeRow=document.createElement('div');tradeRow.id='m-trade-row';
+    tradeRow.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px';
+    mBody.appendChild(tradeRow);
+  }
+  tradeRow.innerHTML='<button onclick="closeTrade();closeModal();openTrade(\'"+sym+"\',\'BUY\')" style="padding:8px;background:rgba(0,255,148,.1);border:1px solid rgba(0,255,148,.3);border-radius:var(--r2);color:var(--green);font-family:var(--dsp);font-size:10px;font-weight:700;cursor:pointer;letter-spacing:2px">▲ LONG AÇ</button>'
+  +'<button onclick="closeTrade();closeModal();openTrade(\'"+sym+"\',\'SELL\')" style="padding:8px;background:rgba(255,45,85,.07);border:1px solid rgba(255,45,85,.25);border-radius:var(--r2);color:var(--red);font-family:var(--dsp);font-size:10px;font-weight:700;cursor:pointer;letter-spacing:2px">▼ SHORT AÇ</button>';
+  document.getElementById('modal').classList.add('open');setTimeout(()=>drawCandles(pos.klines||[],pos.entry_price,pos.tp,pos.sl,pos.side,'modal-cv',150),60);}
 function closeModal(){document.getElementById('modal').classList.remove('open');}
+
+// ═══ MANUEL İŞLEM MODAL ══════════════════════════════════
+let _tradeSym='', _tradeSide='BUY', _tradeLev=1;
+
+function openTrade(sym, side){
+  _tradeSym=sym;
+  const label=sym.replace(':USDT','').replace('USDT','');
+  const c=coins[sym]||{};
+  document.getElementById('tm-sym').textContent=label+' / USDT';
+  document.getElementById('tm-price').textContent='$'+fp(c.price||0);
+  const chg=c.change||0;
+  const chgEl=document.getElementById('tm-chg');
+  chgEl.textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';
+  chgEl.style.color=chg>=0?'var(--green)':'var(--red)';
+  // Risk panel değerlerini al (varsayılan olarak)
+  const tp=parseFloat(document.getElementById('r-tp')?.value||3);
+  const sl=parseFloat(document.getElementById('r-sl')?.value||1.5);
+  document.getElementById('tm-tp').value=tp;
+  document.getElementById('tm-sl').value=sl;
+  setTradeSide(side);
+  setTradeLev(1, document.querySelector('#tm-lev-btns button'));
+  updateTradeSummary();
+  document.getElementById('trade-modal').classList.add('open');
+}
+
+function closeTrade(){
+  document.getElementById('trade-modal').classList.remove('open');
+  document.getElementById('tm-result').textContent='';
+}
+
+function setTradeSide(side){
+  _tradeSide=side;
+  const lb=document.getElementById('tm-long-btn');
+  const sb=document.getElementById('tm-short-btn');
+  const submit=document.getElementById('tm-submit');
+  if(side==='BUY'){
+    lb.style.cssText='padding:10px;background:rgba(0,255,148,.18);border:2px solid var(--green);border-radius:var(--r2);color:var(--green);font-family:var(--dsp);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:2px;transition:.15s';
+    sb.style.cssText='padding:10px;background:rgba(255,45,85,.05);border:1px solid var(--b2);border-radius:var(--r2);color:var(--dim);font-family:var(--dsp);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:2px;transition:.15s';
+    submit.style.cssText='width:100%;padding:12px;background:linear-gradient(135deg,rgba(0,255,148,.2),rgba(0,229,255,.1));border:1px solid var(--green);border-radius:var(--r2);color:var(--green);font-family:var(--dsp);font-size:13px;font-weight:700;cursor:pointer;letter-spacing:3px;transition:.2s';
+    submit.textContent='▲ LONG AÇ';
+  } else {
+    sb.style.cssText='padding:10px;background:rgba(255,45,85,.18);border:2px solid var(--red);border-radius:var(--r2);color:var(--red);font-family:var(--dsp);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:2px;transition:.15s';
+    lb.style.cssText='padding:10px;background:rgba(0,255,148,.05);border:1px solid var(--b2);border-radius:var(--r2);color:var(--dim);font-family:var(--dsp);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:2px;transition:.15s';
+    submit.style.cssText='width:100%;padding:12px;background:linear-gradient(135deg,rgba(255,45,85,.2),rgba(255,100,50,.1));border:1px solid var(--red);border-radius:var(--r2);color:var(--red);font-family:var(--dsp);font-size:13px;font-weight:700;cursor:pointer;letter-spacing:3px;transition:.2s';
+    submit.textContent='▼ SHORT AÇ';
+  }
+  updateTradeSummary();
+}
+
+function setTradeLev(lev, btn){
+  _tradeLev=lev;
+  document.querySelectorAll('#tm-lev-btns button').forEach(b=>{
+    b.style.background='none';b.style.borderColor='var(--b2)';b.style.color='var(--dim)';
+  });
+  if(btn){btn.style.background='rgba(0,229,255,.1)';btn.style.borderColor='var(--cyan)';btn.style.color='var(--cyan)';}
+  updateTradeSummary();
+}
+
+function updateTradeSummary(){
+  const c=coins[_tradeSym]||{};const price=c.price||0;
+  const qty=parseFloat(document.getElementById('tm-qty')?.value||50);
+  const tp=parseFloat(document.getElementById('tm-tp')?.value||3);
+  const sl=parseFloat(document.getElementById('tm-sl')?.value||1.5);
+  const notional=qty*_tradeLev;
+  document.getElementById('tm-notional').textContent='$'+notional.toFixed(0);
+  if(price>0){
+    const tpP=_tradeSide==='BUY'?price*(1+tp/100):price*(1-tp/100);
+    const slP=_tradeSide==='BUY'?price*(1-sl/100):price*(1+sl/100);
+    document.getElementById('tm-tp-price').textContent='$'+fp(tpP);
+    document.getElementById('tm-sl-price').textContent='$'+fp(slP);
+  }
+}
+
+// Özet anlık güncelle
+document.addEventListener('input', e=>{
+  if(['tm-qty','tm-tp','tm-sl'].includes(e.target?.id)) updateTradeSummary();
+});
+
+async function submitTrade(){
+  const btn=document.getElementById('tm-submit');
+  const res_el=document.getElementById('tm-result');
+  if(!_tradeSym){res_el.textContent='⚠ Sembol seçilmedi';return;}
+  btn.disabled=true;btn.textContent='GÖNDERILIYOR...';btn.style.opacity='0.6';
+  const payload={
+    symbol: _tradeSym.replace(':USDT','').replace('/USDT','')+'USDT',
+    side: _tradeSide,
+    quantity: parseFloat(document.getElementById('tm-qty').value)||50,
+    leverage: _tradeLev,
+    sl_pct: parseFloat(document.getElementById('tm-sl').value)||1.5,
+    tp_pct: parseFloat(document.getElementById('tm-tp').value)||3.0,
+    strategy_tag: 'manual_dashboard',
+    order_type: 'MARKET',
+  };
+  addLog(`📤 Manuel işlem: ${payload.symbol} ${payload.side} $${payload.quantity} ${payload.leverage}x`,'trade');
+  const res=await apiFetch('/execution/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  btn.disabled=false;
+  if(res.ok){
+    res_el.style.color='var(--green)';res_el.textContent='✅ İşlem açıldı!';
+    addLog(`✅ ${payload.symbol} ${payload.side} ${payload.leverage}x açıldı`,'ok');
+    setTimeout(()=>{closeTrade();loadPositions();},800);
+  } else {
+    res_el.style.color='var(--red)';res_el.textContent='❌ '+(res.reason||'Hata');
+    addLog(`❌ İşlem başarısız: ${res.reason||'Bilinmeyen'}`,'error');
+    btn.textContent=_tradeSide==='BUY'?'▲ LONG AÇ':'▼ SHORT AÇ';btn.style.opacity='1';
+  }
+}
 
 // ═══ PNL CURVE ═══════════════════════════════════════════
 let lastBal2=null;
