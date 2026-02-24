@@ -786,31 +786,27 @@ async function poll(){
       renderLog();
     }
 
-    // First poll: load symbols and risk settings
+    // First poll: risk settings yükle
     if(firstPoll){
       startBalance=ov.balance||0;
-      const sym=await apiFetch('/status/symbols');
-      if(sym.ok&&sym.symbols){sym.symbols.forEach(s=>{if(!coins[s])coins[s]={price:0,change:0,quoteVolume:0};});renderCoins();buildTicker();}
-      loadRiskSettings(ov.risk||{});firstPoll=false;
+      loadRiskSettings(ov.risk||{});
+      firstPoll=false;
     }
-    // Her poll döngüsünde canlı fiyatları çek
+    // Her poll döngüsünde canlı fiyatları çek — coins objesi direkt market verisinden gelir
     const mkt=await apiFetch('/status/market');
-    if(mkt.ok&&mkt.prices){
+    if(mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){
+      // coins objesini tamamen market verisinden yenile — format sorunu yok
       Object.entries(mkt.prices).forEach(([sym,d])=>{
-        // coins objesini güncelle — hem BTCUSDT hem BTC:USDT formatını destekle
-        if(coins[sym]){
-          coins[sym].price=d.price;coins[sym].change=d.change;
-          coins[sym].high=d.high;coins[sym].low=d.low;coins[sym].quoteVolume=d.quoteVolume;
-        } else {
-          coins[sym]={price:d.price,change:d.change,high:d.high,low:d.low,quoteVolume:d.quoteVolume};
-        }
-        const altSym=sym.replace('USDT',':USDT');
-        if(coins[altSym]){
-          coins[altSym].price=d.price;coins[altSym].change=d.change;
-          coins[altSym].high=d.high;coins[altSym].low=d.low;coins[altSym].quoteVolume=d.quoteVolume;
-        }
+        coins[sym]={
+          price:       parseFloat(d.price)||0,
+          change:      parseFloat(d.change)||0,
+          high:        parseFloat(d.high)||0,
+          low:         parseFloat(d.low)||0,
+          quoteVolume: parseFloat(d.quoteVolume)||0,
+        };
       });
-      renderCoins();updateTicker();
+      renderCoins();
+      if(!tickerBuilt){buildTicker();}else{updateTicker();}
     }else{updateTicker();}
 
     // Positions every 4s

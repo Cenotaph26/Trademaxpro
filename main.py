@@ -107,6 +107,7 @@ async def lifespan(app: FastAPI):
     )
 
     asyncio.create_task(data_client.stream_market_data())
+    asyncio.create_task(_market_cache_loop())
     asyncio.create_task(risk_engine.monitor_loop())
     asyncio.create_task(rl_agent.learning_loop())
     asyncio.create_task(signal_engine.start())
@@ -116,6 +117,7 @@ async def lifespan(app: FastAPI):
     app.state.strategy_manager = strategy_manager
     app.state.rl_agent         = rl_agent
     app.state.signal_engine    = signal_engine
+    app.state.market_cache     = {}
 
     logger.info("✅ Bot hazır!")
 
@@ -374,44 +376,67 @@ async def status_agent(request: Request):
         return {"ok": False, "reason": str(e)}
 
 
-@app.get("/status/market")
-async def status_market(request: Request):
-    """Tüm USDT vadeli coinlerin canlı fiyatlarını Binance'den çeker."""
-    try:
-        dc = request.app.state.data_client
-        if not (hasattr(dc, "exchange") and dc.exchange):
-            return {"ok": False, "reason": "Exchange bağlı değil", "prices": {}}
-
-        # Binance Futures /fapi/v1/ticker/24hr endpoint'ini çağır
-        # ccxt üzerinden fetch_tickers kullan
+async def _fetch_market_prices() -> dict:
+    """Binance public REST API'den tüm USDT futures fiyatlarını çeker."""
+    import httpx
+    # Önce mainnet public endpoint dene (auth gerektirmez, testnet de gerçek fiyatları çeker)
+    urls = [
+        "https://fapi.binance.com/fapi/v1/ticker/24hr",
+        "https://api.binance.com/api/v3/ticker/24hr",
+    ]
+    for url in urls:
         try:
-            tickers = await dc.exchange.fetch_tickers()
-            prices = {}
-            for sym, t in tickers.items():
-                # Sadece USDT çiftlerini al
-                if not sym.endswith("/USDT"):
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url)
+                if resp.status_code != 200:
                     continue
-                last = t.get("last") or t.get("close") or 0
-                change = t.get("percentage") or t.get("change") or 0
-                high = t.get("high") or 0
-                low = t.get("low") or 0
-                vol = t.get("quoteVolume") or 0
-                # sembolü BTCUSDT formatına çevir
-                key = sym.replace("/", "")
-                prices[key] = {
-                    "price": float(last or 0),
-                    "change": float(change or 0),
-                    "high": float(high or 0),
-                    "low": float(low or 0),
-                    "quoteVolume": float(vol or 0),
-                }
-            return {"ok": True, "prices": prices, "count": len(prices)}
+                data = resp.json()
+                prices = {}
+                for t in data:
+                    sym = t.get("symbol", "")
+                    if not sym.endswith("USDT"):
+                        continue
+                    try:
+                        prices[sym] = {
+                            "price":       float(t.get("lastPrice") or t.get("last") or 0),
+                            "change":      float(t.get("priceChangePercent") or 0),
+                            "high":        float(t.get("highPrice") or t.get("high") or 0),
+                            "low":         float(t.get("lowPrice") or t.get("low") or 0),
+                            "quoteVolume": float(t.get("quoteVolume") or 0),
+                        }
+                    except Exception:
+                        pass
+                if prices:
+                    logger.info(f"Market cache güncellendi: {len(prices)} coin ({url})")
+                    return prices
         except Exception as e:
-            logger.warning(f"/status/market fetch_tickers hatası: {e}")
-            return {"ok": False, "reason": str(e), "prices": {}}
-    except Exception as e:
-        logger.error(f"/status/market genel hata: {e}")
-        return {"ok": False, "reason": str(e), "prices": {}}
+            logger.warning(f"Market fetch hatası ({url}): {e}")
+    return {}
+
+
+async def _market_cache_loop():
+    """Arka planda her 5 saniyede bir fiyatları günceller."""
+    while True:
+        try:
+            prices = await _fetch_market_prices()
+            if prices:
+                app.state.market_cache = prices
+        except Exception as e:
+            logger.warning(f"Market cache loop hatası: {e}")
+        await asyncio.sleep(5)
+
+
+@app.get("/status/market")
+async def status_market():
+    """Tüm USDT coinlerin canlı fiyatlarını cache'den döndürür."""
+    cache = getattr(app.state, "market_cache", {})
+    if cache:
+        return {"ok": True, "prices": cache, "count": len(cache)}
+    # Cache henüz dolmadıysa direkt çek
+    result = await _fetch_market_prices()
+    if result:
+        app.state.market_cache = result
+    return {"ok": bool(result), "prices": result, "count": len(result)}
 
 
 @app.get("/execution/positions/live")
