@@ -48,21 +48,24 @@ class StrategyManager:
         self._initialized = False
 
     def _ensure_init(self):
-        if not self._initialized:
-            if not self.data.exchange:
-                logger.warning("_ensure_init: exchange henüz hazır değil, bekleniyor")
-                return
-            try:
-                self.executor = OrderExecutor(self.data.exchange, self.s)
-                self.dca = DCAStrategy(self.executor, self.risk, self.data, self.s)
-                self.grid = GridStrategy(self.executor, self.risk, self.data, self.s)
-                self.smart = SmartTradeStrategy(self.executor, self.risk, self.data, self.s)
-                self._initialized = True
-                asyncio.create_task(self.dca.monitor_all())
-                asyncio.create_task(self.grid.monitor_all())
-                logger.info("StrategyManager başlatıldı")
-            except Exception as e:
-                logger.error(f"_ensure_init hatası: {e}")
+        if self._initialized:
+            return
+        # Exchange henüz hazır değilse bekle (her çağrıda tekrar denenecek)
+        if not self.data.exchange:
+            logger.warning("_ensure_init: exchange henüz hazır değil")
+            return
+        try:
+            self.executor = OrderExecutor(self.data.exchange, self.s)
+            self.dca = DCAStrategy(self.executor, self.risk, self.data, self.s)
+            self.grid = GridStrategy(self.executor, self.risk, self.data, self.s)
+            self.smart = SmartTradeStrategy(self.executor, self.risk, self.data, self.s)
+            self._initialized = True
+            asyncio.create_task(self.dca.monitor_all())
+            asyncio.create_task(self.grid.monitor_all())
+            logger.info("✅ StrategyManager başlatıldı")
+        except Exception as e:
+            logger.error(f"_ensure_init hatası: {e} — sonraki çağrıda tekrar denenecek")
+            # _initialized=False kalsın, bir sonraki çağrıda tekrar dene
 
     def set_rl_agent(self, agent):
         self.rl_agent = agent
@@ -76,9 +79,12 @@ class StrategyManager:
                   order_type, strategy_tag, entry_hint}
         """
         self._ensure_init()
-        # Executor hâlâ None ise exchange hazır değil demek
+        # Executor None ise bir kez daha init dene (exchange geç hazır olmuş olabilir)
         if not self.executor:
-            err = "Exchange bağlantısı hazır değil - lütfen 2-3 saniye bekleyin"
+            self._initialized = False  # force retry
+            self._ensure_init()
+        if not self.executor:
+            err = "Exchange bağlantısı hazır değil - bot henüz başlatılıyor olabilir (5-10sn bekleyin)"
             logger.error(err)
             return {"ok": False, "reason": err}
         symbol = signal.get("symbol", self.s.SYMBOL)

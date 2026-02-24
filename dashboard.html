@@ -574,7 +574,17 @@ const cl=n=>n>=0?'c-green':'c-red';
 const fmtUSD=n=>'$'+(Math.abs(n)<10000?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):(n/1000).toFixed(1)+'K');
 
 // ═══ API ═════════════════════════════════════════════════
-async function apiFetch(url,opts){try{const r=await fetch(url,opts);if(!r.ok)return{ok:false,reason:'HTTP '+r.status};return await r.json();}catch(e){return{ok:false,reason:e.message};}}
+async function apiFetch(url,opts){
+  try{
+    const r=await fetch(url,opts);
+    if(!r.ok){
+      let reason='HTTP '+r.status;
+      try{const j=await r.json();reason=j.detail||j.reason||j.message||reason;}catch(e2){}
+      return{ok:false,reason};
+    }
+    return await r.json();
+  }catch(e){return{ok:false,reason:e.message};}
+}
 
 // ═══ AGENT CONTROL ═══════════════════════════════════════
 async function startAgent(){

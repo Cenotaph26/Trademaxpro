@@ -119,6 +119,32 @@ async def lifespan(app: FastAPI):
     app.state.signal_engine    = signal_engine
     app.state.market_cache     = {}
 
+    # Exchange hazırsa strategy manager'ı hemen init et
+    if data_client.exchange:
+        try:
+            strategy_manager._ensure_init()
+            logger.info(f"✅ StrategyManager init: executor={'OK' if strategy_manager.executor else 'BEKLIYOR'}")
+        except Exception as e:
+            logger.warning(f"StrategyManager erken init hatası: {e}")
+
+    # Exchange bağlantısı hazır olunca ensure_init çalıştıran arka plan task
+    async def _deferred_init():
+        """Exchange hazır olana kadar bekle, sonra strategy manager'ı init et."""
+        for attempt in range(30):  # 30 * 2s = 60 saniye max
+            if strategy_manager.executor:
+                break
+            if data_client.exchange and data_client._auth_ok:
+                strategy_manager._initialized = False
+                strategy_manager._ensure_init()
+                if strategy_manager.executor:
+                    logger.info("✅ StrategyManager deferred init başarılı")
+                    break
+            await asyncio.sleep(2)
+        else:
+            logger.error("❌ StrategyManager 60 saniye içinde init edilemedi!")
+
+    asyncio.create_task(_deferred_init())
+
     logger.info("✅ Bot hazır!")
 
     # Telegram başlat
