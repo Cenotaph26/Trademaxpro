@@ -152,6 +152,8 @@ class StrategyManager:
                 sl_pct=sl_pct, tp_pct=tp_pct, mark_price=mark,
                 strategy_tag=signal.get("strategy_tag", "manual"),
             )
+            if isinstance(result, dict) and not result.get("ok"):
+                return result
         else:
             # Otomasyon: SmartTrade / DCA / Grid
             strategy = decision.strategy if decision else "SMART"
