@@ -200,7 +200,26 @@ class StrategyManager:
 
         ok = result is not None
         logger.info(f"{'✅' if ok else '❌'} İşlem {'açıldı' if ok else 'başarısız'}: {symbol} {side}")
-        return {"ok": ok, "symbol": symbol, "side": side, "leverage": actual_leverage}
+
+        # ── Trade kaydını risk engine'e ilet (history + stats için) ──
+        if ok:
+            try:
+                trade_rec = TradeRecord(
+                    pnl=0.0,          # pozisyon açılışta PnL 0, kapanışta güncellenir
+                    timestamp=datetime.utcnow(),
+                    side=side,
+                    strategy=signal.get("strategy_tag", "auto"),
+                    symbol=symbol,
+                    leverage=actual_leverage,
+                    pnl_pct=0.0,
+                )
+                await self.risk.record_trade(trade_rec)
+                logger.info(f"📋 Trade kaydedildi: {symbol} {side} {actual_leverage}x")
+            except Exception as e:
+                logger.warning(f"Trade kaydı hatası: {e}")
+
+        return {"ok": ok, "symbol": symbol, "side": side, "leverage": actual_leverage,
+                "entry_price": mark, "tp_pct": tp_pct, "sl_pct": sl_pct}
 
     async def _update_position_counts(self, symbol: str = ""):
         try:

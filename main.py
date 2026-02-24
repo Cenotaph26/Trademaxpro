@@ -192,7 +192,14 @@ def _positions_safe(re) -> list:
 @app.get("/status/health")
 @app.get("/health")
 async def status_health():
-    return {"status": "ok", "service": "trademaxpro"}
+    try:
+        dc = app.state.data_client
+        auth = getattr(dc, "_auth_ok", False)
+        testnet = getattr(getattr(dc, "settings", None), "BINANCE_TESTNET", True)
+    except Exception:
+        auth = False
+        testnet = True
+    return {"status": "ok", "service": "trademaxpro", "auth": auth, "testnet": testnet}
 
 
 @app.get("/status/overview")
@@ -497,6 +504,13 @@ async def _market_cache_loop():
         await asyncio.sleep(3)
 
 
+@app.get("/status/positions")
+async def status_positions(request: Request):
+    """Kısa yol: /execution/positions/live ile aynı ama hata toleranslı."""
+    from fastapi import Request as Req
+    return await live_positions(request)
+
+
 @app.get("/status/market")
 async def status_market():
     """Tüm USDT coinlerin canlı fiyatlarını cache'den döndürür."""
@@ -512,57 +526,140 @@ async def status_market():
 
 @app.get("/execution/positions/live")
 async def live_positions(request: Request):
-    """Binance'den canlı pozisyonları çeker."""
+    """Binance testnet dahil tüm ortamlarda canlı pozisyonları çeker."""
     try:
         dc = request.app.state.data_client
-        if not dc.exchange or not dc._auth_ok:
-            return {"ok": False, "reason": "Binance bağlı değil", "positions": []}
-        raw = await dc.exchange.fetch_positions()
+        if not dc.exchange:
+            return {"ok": False, "reason": "Exchange yok", "positions": []}
+
+        # Auth durumundan bağımsız - her zaman pozisyon çekmeye çalış
+        raw = []
+        try:
+            raw = await dc.exchange.fetch_positions()
+        except Exception as e1:
+            logger.warning(f"fetch_positions hatası: {e1}")
+            try:
+                # Testnet için alternatif - positionRisk v2
+                resp = await dc.exchange.fapiPrivateV2GetPositionRisk()
+                if isinstance(resp, list):
+                    raw = []
+                    for r in resp:
+                        amt = float(r.get("positionAmt", 0))
+                        if abs(amt) < 1e-9:
+                            continue
+                        raw.append({
+                            "info": r,
+                            "symbol": r.get("symbol", ""),
+                            "contracts": amt,
+                            "entryPrice": float(r.get("entryPrice", 0)),
+                            "markPrice": float(r.get("markPrice", 0)),
+                            "unrealizedPnl": float(r.get("unRealizedProfit", 0)),
+                            "leverage": int(float(r.get("leverage", 1))),
+                            "liquidationPrice": float(r.get("liquidationPrice", 0)),
+                            "notional": float(r.get("notional", 0)),
+                            "positionSide": r.get("positionSide", "BOTH"),
+                        })
+                    logger.info(f"positionRisk v2 ile {len(raw)} pozisyon çekildi")
+            except Exception as e2:
+                logger.warning(f"positionRisk v2 de başarısız: {e2}")
+                # Son çare: v1 dene
+                try:
+                    resp2 = await dc.exchange.fapiPrivateGetPositionRisk()
+                    if isinstance(resp2, list):
+                        raw = [{"info": r, "symbol": r.get("symbol",""),
+                                "contracts": float(r.get("positionAmt",0)),
+                                "entryPrice": float(r.get("entryPrice",0)),
+                                "markPrice": float(r.get("markPrice",0)),
+                                "unrealizedPnl": float(r.get("unRealizedProfit",0)),
+                                "leverage": int(float(r.get("leverage",1))),
+                                "liquidationPrice": float(r.get("liquidationPrice",0)),
+                                "notional": float(r.get("notional",0))}
+                               for r in resp2 if abs(float(r.get("positionAmt",0))) > 1e-9]
+                        logger.info(f"positionRisk v1 ile {len(raw)} pozisyon çekildi")
+                except Exception as e3:
+                    logger.error(f"Tüm pozisyon fetch yöntemleri başarısız: {e3}")
+
         positions = []
         for p in raw:
-            contracts = float(p.get("contracts") or p.get("info", {}).get("positionAmt") or 0)
-            if abs(contracts) < 1e-9:
-                continue
-            notional = float(p.get("notional") or p.get("info", {}).get("notional") or 0)
-            entry  = float(p.get("entryPrice") or p.get("info", {}).get("entryPrice") or 0)
-            mark   = float(p.get("markPrice")  or p.get("info", {}).get("markPrice")  or 0)
-            upnl   = float(p.get("unrealizedPnl") or p.get("info", {}).get("unRealizedProfit") or 0)
-            lev    = int(float(p.get("leverage") or p.get("info", {}).get("leverage") or 1))
-            liq    = float(p.get("liquidationPrice") or p.get("info", {}).get("liquidationPrice") or 0)
-            margin = float(p.get("initialMargin") or p.get("info", {}).get("isolatedMargin") or abs(notional / lev) if lev else 0)
+            info = p.get("info", {}) if isinstance(p, dict) else {}
             
-            # Pozisyon yönünü birden fazla kaynaktan doğru belirle
-            pos_side_raw = (p.get("side") or p.get("positionSide") or 
-                           p.get("info", {}).get("positionSide") or "").upper()
-            if pos_side_raw in ("LONG", "SHORT"):
-                side = pos_side_raw
-            elif contracts > 0:
+            # positionAmt: testnet'te info içinde gelir
+            pos_amt = float(
+                p.get("contracts") or
+                info.get("positionAmt") or
+                p.get("contractSize") or 0
+            )
+            if abs(pos_amt) < 1e-9:
+                continue
+
+            entry = float(p.get("entryPrice") or info.get("entryPrice") or 0)
+            mark  = float(p.get("markPrice")  or info.get("markPrice")  or 0)
+            upnl  = float(p.get("unrealizedPnl") or info.get("unRealizedProfit") or 0)
+            notional = float(p.get("notional") or info.get("notional") or abs(pos_amt * mark) or 0)
+            lev   = int(float(p.get("leverage") or info.get("leverage") or 1))
+            liq   = float(p.get("liquidationPrice") or info.get("liquidationPrice") or 0)
+            margin = abs(notional / lev) if lev > 0 else 0
+
+            # Yön: positionSide > contracts işareti > side
+            ps = (p.get("side") or p.get("positionSide") or
+                  info.get("positionSide") or "").upper()
+            if ps in ("LONG", "SHORT"):
+                side = ps
+            elif pos_amt > 0:
                 side = "LONG"
-            elif contracts < 0:
+            elif pos_amt < 0:
                 side = "SHORT"
             else:
-                side = "LONG"  # fallback
-            sym    = p.get("symbol") or ""
-            # Sembol görüntüleme formatını normalize et: BTC/USDT:USDT → BTCUSDT
+                continue  # boş pozisyon
+
+            sym = p.get("symbol") or info.get("symbol") or ""
             sym_display = sym.replace("/", "").replace(":USDT", "").replace(":BUSD", "")
+
+            # Güncel mark price'ı market cache'den al (daha güncel)
+            cache = getattr(request.app.state, "market_cache", {})
+            cached = cache.get(sym_display) or {}
+            if cached.get("price"):
+                mark = float(cached["price"])
+
             if entry > 0 and mark > 0:
                 pnl_pct = ((mark - entry) / entry * 100 * lev) if side == "LONG" else ((entry - mark) / entry * 100 * lev)
+                upnl_calc = (mark - entry) * abs(pos_amt) if side == "LONG" else (entry - mark) * abs(pos_amt)
+                if upnl == 0:
+                    upnl = upnl_calc
             else:
                 pnl_pct = 0.0
+
+            # TP/SL - risk manager'dan veya strateji manager'dan çek
+            tp = sl = 0.0
+            try:
+                sm = request.app.state.strategy_manager
+                # Smart trade'den TP/SL çek
+                if sm.smart and hasattr(sm.smart, "_positions"):
+                    sp = sm.smart._positions.get(sym_display) or sm.smart._positions.get(sym, {})
+                    if sp:
+                        tp = float(sp.get("tp1_price") or sp.get("tp_price") or 0)
+                        sl = float(sp.get("sl_price") or 0)
+            except Exception:
+                pass
+
             positions.append({
-                "symbol": sym_display,    # görüntü için (BTCUSDT)
-                "symbol_ccxt": sym,       # ccxt için (BTC/USDT:USDT)
-                "side": side,
-                "contracts": abs(contracts),
-                "notional": abs(notional),
-                "entry_price": entry,
-                "mark_price": mark,
-                "unrealized_pnl": upnl,
-                "pnl_pct": round(pnl_pct, 2),
-                "leverage": lev,
+                "symbol":          sym_display,
+                "symbol_ccxt":     sym,
+                "side":            side,
+                "contracts":       abs(pos_amt),
+                "notional":        abs(notional),
+                "entry_price":     entry,
+                "mark_price":      mark,
+                "unrealized_pnl":  round(upnl, 4),
+                "pnl_pct":         round(pnl_pct, 2),
+                "leverage":        lev,
                 "liquidation_price": liq,
-                "margin": abs(margin),
+                "margin":          round(margin, 4),
+                "tp":              tp,
+                "sl":              sl,
             })
+
+        logger.info(f"Pozisyonlar çekildi: {len(positions)} adet")
         return {"ok": True, "positions": positions, "count": len(positions)}
     except Exception as e:
         logger.error(f"live_positions hatası: {e}", exc_info=True)

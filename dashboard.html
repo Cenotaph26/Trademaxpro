@@ -274,7 +274,7 @@ header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;ba
 <body>
 <div class="ticker-wrap"><div class="ticker-track" id="ticker"></div></div>
 <header>
-  <div><div class="logo">TRADEMAXPRO</div><div class="logo-sub">BINANCE FUTURES · AI ENGINE · TESTNET</div></div>
+  <div><div class="logo">TRADEMAXPRO</div><div class="logo-sub" id="env-sub">BINANCE FUTURES · AI ENGINE · <span id="env-badge" style="color:var(--yellow)">TESTNET</span></div></div>
   <div class="vsep"></div>
   <div class="hstats">
     <div class="hs"><div class="hs-l">Bakiye</div><div class="hs-v c-cyan" id="h-bal">$0.00</div></div>
@@ -353,7 +353,7 @@ header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;ba
   <!-- POSITIONS -->
   <div class="pos-panel panel">
     <div class="ph">
-      <div class="ph-l"><div class="ph-title">ACIK POZISYONLAR</div><div class="badge bd-g" id="pos-badge">0 AKTIF</div></div>
+      <div class="ph-l"><div class="ph-title">ACIK POZISYONLAR</div><div class="badge bd-g" id="pos-badge">0 AKTIF</div><div class="badge" id="pos-err-badge" style="display:none;background:rgba(255,45,85,.07);border-color:rgba(255,45,85,.2);color:var(--red);font-size:6px"></div></div>
       <button onclick="loadPositions()" style="font-size:7px;padding:2px 6px;background:none;border:1px solid var(--b);border-radius:var(--r);color:var(--dim);cursor:pointer;font-family:var(--mono)" onmouseover="this.style.borderColor='var(--cyan)';this.style.color='var(--cyan)'" onmouseout="this.style.borderColor='var(--b)';this.style.color='var(--dim)'">&#8635; YENILE</button>
     </div>
     <div class="scroll" id="positions"><div class="empty">Pozisyon bekleniyor...</div></div>
@@ -733,8 +733,21 @@ function drawCandles(klines,entry,tp,sl,posType,cid,oH){
 
 // ═══ POSITIONS ═══════════════════════════════════════════
 async function loadPositions(){
-  let res=await apiFetch('/execution/positions/live');if(!res.ok)res=await apiFetch('/execution/positions');
-  if(!res.ok){document.getElementById('positions').innerHTML='<div class="empty">Baglanti hatasi</div>';return;}
+  let res=await apiFetch('/execution/positions/live');
+  if(!res||!res.ok){
+    res=await apiFetch('/status/positions');  // kısa yol fallback
+  }
+  if(!res||!res.ok){
+    res=await apiFetch('/execution/positions'); // son çare
+  }
+  if(!res||!res.ok){
+    const reason=res?.reason||'Bilinmeyen hata';
+    document.getElementById('positions').innerHTML='<div class="empty" style="flex-direction:column;gap:4px"><span>⚠ Pozisyon verisi alınamadı</span><span style="font-size:8px;color:var(--dimmer)">'+escH(reason)+'</span></div>';
+    const eb=document.getElementById('pos-err-badge');if(eb){eb.style.display='inline-block';eb.textContent='ERR';}
+    addLog('⚠ Pozisyon fetch hatası: '+reason,'warn');
+    return;
+  }
+  const eb=document.getElementById('pos-err-badge');if(eb)eb.style.display='none';
   const posArr=res.positions||[];positions={};posArr.forEach(p=>{positions[p.symbol]=p;});
   document.getElementById('s-act').textContent=posArr.length;
   document.getElementById('pos-badge').textContent=posArr.length+' AKTIF';
@@ -855,6 +868,17 @@ function updatePnlCurve(bal){if(bal<=0)return;if(lastBal2===null)lastBal2=bal;if
 let firstPoll=true,pollErr=0;
 async function poll(){
   try{
+    // Health check - auth durumu
+    const hlt=await apiFetch('/health');
+    if(hlt&&hlt.auth!==undefined){
+      const envSub=document.getElementById('env-sub');
+      const envBadge=document.getElementById('env-badge');
+      if(envBadge){
+        if(hlt.auth){envBadge.style.color='var(--green)';}
+        else{envBadge.style.color='var(--red)';envBadge.textContent=hlt.testnet?'TESTNET ⚠AUTH':'LIVE ⚠AUTH';}
+        envBadge.title=hlt.auth?'Binance bağlı':'Binance auth başarısız - API key kontrol edin';
+      }
+    }
     const ov=await apiFetch('/status/overview');
     if(ov.balance!==undefined||ov.ok){D=ov;buildStats(ov);if(ov.balance>0)updatePnlCurve(ov.balance);pollErr=0;}
 
@@ -902,8 +926,8 @@ async function poll(){
       if(!tickerBuilt){buildTicker();}else{updateTicker();}
     }else{updateTicker();}
 
-    // Positions every 4s
-    if(Math.floor(Date.now()/1000)%4===0)await loadPositions();
+    // Positions every 3s
+    if(Math.floor(Date.now()/1000)%3===0)await loadPositions();
 
     // Chart
     if(chartMode==='pnl')drawPnlChart();
@@ -920,7 +944,7 @@ async function poll(){
 }
 
 // ═══ INIT ════════════════════════════════════════════════
-initHover();poll();setInterval(poll,2000);setInterval(()=>{apiFetch('/status/market').then(mkt=>{if(mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){const nc={};Object.entries(mkt.prices).forEach(([s,d])=>{nc[s]={price:parseFloat(d.price)||0,change:parseFloat(d.change)||0,high:parseFloat(d.high)||0,low:parseFloat(d.low)||0,quoteVolume:parseFloat(d.quoteVolume)||0};});Object.keys(coins).forEach(k=>delete coins[k]);Object.assign(coins,nc);renderCoins();updateTicker();}});},3000);
+initHover();poll();loadPositions();setInterval(poll,2000);setInterval(loadPositions,5000);setInterval(()=>{apiFetch('/status/market').then(mkt=>{if(mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){const nc={};Object.entries(mkt.prices).forEach(([s,d])=>{nc[s]={price:parseFloat(d.price)||0,change:parseFloat(d.change)||0,high:parseFloat(d.high)||0,low:parseFloat(d.low)||0,quoteVolume:parseFloat(d.quoteVolume)||0};});Object.keys(coins).forEach(k=>delete coins[k]);Object.assign(coins,nc);renderCoins();updateTicker();}});},3000);
 window.addEventListener('resize',()=>{if(chartMode==='pnl')drawPnlChart();});
 // Default strategies while waiting
 setTimeout(()=>{if(!Object.keys(D.strategies||{}).length){D.strategies={'Mean Reversion':{score:1.66,wr:38.1,trades:0},'Breakout':{score:1.42,wr:33.3,trades:0},'Trend Following':{score:1.30,wr:30.4,trades:0},'Scalping':{score:0.70,wr:15.4,trades:0},'VWAP Bounce':{score:0.64,wr:10.0,trades:0}};buildStrategies();}},1500);
