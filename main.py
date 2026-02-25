@@ -45,7 +45,7 @@ import os, json, threading
 # Gürültülü log kaynakları — buffer'a yazılmasın
 _NOISE_SOURCES = {"uvicorn.access", "uvicorn.error", "asyncio", "concurrent.futures"}
 _NOISE_MSGS = ("asyncio/runners", "uvloop/loop", "until_complete", "run_until_complete",
-               "GET /status", "GET /health", "GET /execution", "HTTP/1.1" 200")
+               "GET /status", "GET /health", "GET /execution", 'HTTP/1.1" 200')
 
 class _BufferHandler(logging.Handler):
     _fmt = logging.Formatter("%(message)s")
