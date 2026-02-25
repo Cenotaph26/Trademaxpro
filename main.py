@@ -523,55 +523,42 @@ async def live_positions(request: Request):
                 "liquidation_price": liq,
                 "margin": abs(margin),
             })
-        # Her pozisyon için açık emirleri çek (SL/TP bilgisi)
+        # Açık emirleri 3sn timeout ile çek (SL/TP bilgisi)
         try:
-            open_orders = await dc.exchange.fetch_open_orders()
-            # Sembol bazında SL/TP eşleştir
-            sl_map = {}  # symbol -> price
-            tp_map = {}  # symbol -> price
-            for o in open_orders:
-                osym = (o.get("symbol") or "").replace("/","").replace(":USDT","")
+            raw_orders = await asyncio.wait_for(
+                dc.exchange.fetch_open_orders(), timeout=3.0
+            )
+            sl_map, tp_map = {}, {}
+            for o in raw_orders:
+                osym  = (o.get("symbol") or "").replace("/","").replace(":USDT","")
                 otype = (o.get("type") or "").upper()
                 ostop = float(o.get("stopPrice") or o.get("price") or 0)
-                oside = (o.get("side") or "").upper()
                 reduce = o.get("reduceOnly") or o.get("info", {}).get("reduceOnly") == "true"
-                if not reduce:
+                if not reduce or ostop <= 0:
                     continue
-                if otype in ("STOP_MARKET", "STOP") or (otype == "LIMIT" and ostop > 0):
-                    # SL veya LIMIT-SL (testnet fallback)
-                    # Eğer bu zaten bir TP limit mi SL limit mi?
-                    # LONG için SL = entry altında, TP = entry üstünde
-                    # Şimdilik stop_price'a göre ayır
-                    for p in positions:
-                        psym = p["symbol"]
-                        if osym == psym:
-                            entry_p = p.get("entry_price", 0)
-                            if otype in ("STOP_MARKET", "STOP"):
-                                sl_map[psym] = ostop
-                            elif otype == "LIMIT" and entry_p > 0:
-                                # LONG için: price > entry → TP, price < entry → SL
-                                pside = p.get("side", "LONG")
-                                if pside == "LONG":
-                                    if ostop > entry_p:
-                                        tp_map[psym] = ostop
-                                    else:
-                                        sl_map[psym] = ostop
-                                else:
-                                    if ostop < entry_p:
-                                        tp_map[psym] = ostop
-                                    else:
-                                        sl_map[psym] = ostop
-                elif otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
-                    for p in positions:
-                        if osym == p["symbol"]:
-                            tp_map[p["symbol"]] = ostop
-            # Pozisyonlara ekle
+                for p in positions:
+                    if osym != p["symbol"]:
+                        continue
+                    entry_p = p.get("entry_price", 0)
+                    pside   = p.get("side", "LONG")
+                    if otype in ("STOP_MARKET", "STOP"):
+                        sl_map[osym] = ostop
+                    elif otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
+                        tp_map[osym] = ostop
+                    elif otype == "LIMIT" and entry_p > 0:
+                        # testnet fallback: fiyata göre SL/TP ayır
+                        is_tp = (pside == "LONG" and ostop > entry_p) or (pside == "SHORT" and ostop < entry_p)
+                        if is_tp:
+                            tp_map[osym] = ostop
+                        else:
+                            sl_map[osym] = ostop
             for p in positions:
-                psym = p["symbol"]
-                p["sl"] = sl_map.get(psym, 0)
-                p["tp"] = tp_map.get(psym, 0)
+                p["sl"] = sl_map.get(p["symbol"], 0)
+                p["tp"] = tp_map.get(p["symbol"], 0)
+        except asyncio.TimeoutError:
+            logger.debug("Açık emir fetch timeout (3s) — SL/TP gösterilmeyecek")
         except Exception as oe:
-            logger.debug(f"Açık emir SL/TP çekme hatası (önemsiz): {oe}")
+            logger.debug(f"SL/TP emir çekme hatası (önemsiz): {oe}")
 
         return {"ok": True, "positions": positions, "count": len(positions)}
     except Exception as e:

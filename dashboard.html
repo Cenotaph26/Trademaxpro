@@ -700,8 +700,11 @@ function buildStats(d){
   const ddSEl=document.getElementById('s-dd');
   if(ddSEl){ddSEl.textContent=ddPct?'-'+ddPct.toFixed(2)+'%':'0%';ddSEl.className='sc-v '+(ddPct>3?'c-red':ddPct>1.5?'c-yellow':'c-teal');}
 
-  document.getElementById('s-act').textContent=d.open_positions||0;
-  document.getElementById('s-tr').textContent=trades;
+  // s-act güncellenmesi loadPositions() tarafından yapılıyor (gerçek Binance verisi)
+  // İşlem sayısı: önce SQLite history'den, yoksa signal engine'den
+  const realTrades = (window._historyStats && window._historyStats.trade_count) || trades || 0;
+  document.getElementById('s-tr').textContent=realTrades;
+  document.getElementById('ss-count').textContent=realTrades;
   const maxPos=risk.max_positions||5;document.getElementById('s-act-sub').textContent='Maks '+maxPos+' poz';
 
   // ── Kill switch ──
@@ -724,7 +727,7 @@ function buildStats(d){
   document.getElementById('sig-running-txt').style.color=running?'var(--green)':'var(--dim)';
   document.getElementById('ss-running').textContent=running?'✅ Calisiyor':'⏹ Durdu';
   document.getElementById('ss-running').style.color=running?'var(--green)':'var(--red)';
-  document.getElementById('ss-count').textContent=trades;
+  // ss-count buildStats'ın s-tr kısmında güncelleniyor
   document.getElementById('ss-scan').textContent=(se.scan_interval_min||'--')+' dk';
   document.getElementById('ss-minscore').textContent=se.min_signal_score||'--';
   document.getElementById('ss-epsilon').textContent=rl.epsilon!=null?rl.epsilon.toFixed(4):'--';
@@ -1116,7 +1119,46 @@ let lastBal2=null;
 function updatePnlCurve(bal){if(bal<=0)return;if(lastBal2===null)lastBal2=bal;if(Math.abs(bal-lastBal2)/lastBal2>0.0001||pnlCurve.length===0){const now=new Date();pnlCurve.push(bal);pnlTimes.push([now.getHours(),now.getMinutes()].map(v=>String(v).padStart(2,'0')).join(':'));if(pnlCurve.length>120){pnlCurve.shift();pnlTimes.shift();}lastBal2=bal;}}
 
 // ═══ MAIN POLL ═══════════════════════════════════════════
-let firstPoll=true,pollErr=0;
+let firstPoll=true,pollErr=0,_logLoaded=false,_wasDisconnected=false;
+
+// ── Sayfa açılışında SQLite'ten geçmiş logları yükle ──
+async function loadHistoricalLogs(){
+  if(_logLoaded)return;
+  try{
+    const res=await apiFetch('/status/logs?limit=300');
+    if(res.ok&&res.logs&&res.logs.length>0){
+      let added=0;
+      const sorted=[...res.logs].reverse();
+      sorted.forEach(l=>{
+        const exists=logBuffer.some(b=>b.time===l.time&&b.message===l.message);
+        if(!exists){logBuffer.push({time:l.time,level:(l.level||'INFO').toLowerCase(),message:l.message||''});added++;}
+      });
+      logBuffer.sort((a,b)=>(b.time||'').localeCompare(a.time||''));
+      if(logBuffer.length>600)logBuffer=logBuffer.slice(0,500);
+      if(added>0){renderLog();addLog('📂 '+added+' gecmis log yuklendi (SQLite)','info');}
+      _logLoaded=true;
+    }
+  }catch(e){console.warn('Gecmis log yuklenemedi:',e);}
+}
+
+// ── Bağlantı durumu UI ──
+function setConnStatus(ok,msg){
+  let el=document.getElementById('_connBadge');
+  if(!el){
+    el=document.createElement('div');
+    el.id='_connBadge';
+    el.style.cssText='position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;padding:4px 14px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:1px;font-family:monospace;pointer-events:none;transition:opacity .4s';
+    document.body.appendChild(el);
+  }
+  if(ok){
+    el.style.background='#00e87620';el.style.border='1px solid #00e876';el.style.color='#00e876';el.style.opacity='1';
+    el.textContent='● BAGLI';
+    setTimeout(()=>{el.style.opacity='0';},2500);
+  }else{
+    el.style.background='#ff444430';el.style.border='1px solid #ff4444';el.style.color='#ff4444';el.style.opacity='1';
+    el.textContent=msg||'● BAGLANTI YOK — yeniden deneniyor...';
+  }
+}
 async function poll(){
   try{
     // Health check - auth durumu
@@ -1131,7 +1173,18 @@ async function poll(){
       }
     }
     const ov=await apiFetch('/status/overview');
-    if(ov.balance!==undefined||ov.ok){D=ov;buildStats(ov);if(ov.balance>0)updatePnlCurve(ov.balance);pollErr=0;}
+    if(ov.balance!==undefined||ov.ok){
+      D=ov;buildStats(ov);if(ov.balance>0)updatePnlCurve(ov.balance);
+      if(pollErr>0||_wasDisconnected){
+        setConnStatus(true);
+        addLog('Baglanti yeniden kuruldu','info');
+        // Kopuklukta kaçırılan logları yeniden çek
+        _logLoaded=false;
+        loadHistoricalLogs();
+        _wasDisconnected=false;
+      }
+      pollErr=0;
+    }
 
     // Logs from backend — merging with local buffer
     const logs=await apiFetch('/status/logs?limit=100');
@@ -1191,11 +1244,18 @@ async function poll(){
     const el=Math.floor((Date.now()-poll._s)/1000);
     document.getElementById('h-upt').textContent=[Math.floor(el/3600),Math.floor((el%3600)/60),el%60].map(v=>String(v).padStart(2,'0')).join(':');
 
-  }catch(e){pollErr++;if(pollErr<=3)addLog('Baglanti hatasi: '+e.message,'error');}
+  }catch(e){
+    pollErr++;
+    setConnStatus(false,'● BAGLANTI YOK ('+(pollErr)+'x) — '+e.message.substring(0,40));
+    if(pollErr<=3)addLog('Baglanti hatasi: '+e.message,'error');
+    _wasDisconnected=true;
+  }
 }
 
 // ═══ INIT ════════════════════════════════════════════════
 initHover();poll();loadPositions();loadSignalHistory();
+// Sayfa açılışında geçmiş logları hemen yükle
+loadHistoricalLogs();
 setInterval(poll,2000);
 setInterval(loadPositions,5000);
 setInterval(loadSignalHistory,30000);
@@ -1219,14 +1279,19 @@ async function loadPersistentHistory(){
       document.getElementById('hist-cnt').textContent=trades.length;
       console.log('Kalici gecmis yuklendi:',trades.length,'trade');
     }
-    // Tum zamanli istatistikleri goster
+    // Tum zamanli istatistikleri goster + global'e kaydet
     if(h&&h.stats){
       const s=h.stats;
-      if(s.trade_count>0){
+      window._historyStats = s;  // buildStats'in kullanması için
+      if(s.trade_count>=0){
+        // İşlem sayısını hemen güncelle
+        document.getElementById('s-tr').textContent=s.trade_count||0;
+        const ssCount=document.getElementById('ss-count');
+        if(ssCount)ssCount.textContent=s.trade_count||0;
         const wrEl=document.getElementById('s-wr');
-        if(wrEl)wrEl.textContent=((s.winrate||0)*100).toFixed(1)+'%';
+        if(wrEl)wrEl.textContent=s.trade_count>0?((s.winrate||0)*100).toFixed(1)+'%':'--';
         const wlEl=document.getElementById('s-wl');
-        if(wlEl)wlEl.textContent='W:'+Math.round((s.winrate||0)*s.trade_count)+' / L:'+Math.round((1-(s.winrate||0))*s.trade_count);
+        if(wlEl)wlEl.textContent='W:'+Math.round((s.winrate||0)*(s.trade_count||0))+' / L:'+Math.round((1-(s.winrate||0))*(s.trade_count||0));
       }
     }
     // Storage durumu
@@ -1249,6 +1314,8 @@ async function loadPersistentHistory(){
 }
 loadPersistentHistory();
 setInterval(loadPersistentHistory,60000); // Her dakika guncelle
+// Log geçmişini de her 30sn yenile
+setInterval(()=>{_logLoaded=false;loadHistoricalLogs();},30000);
 
 // Sayfa acilisinda hemen overview cek (trade history dahil)
 setTimeout(async()=>{
