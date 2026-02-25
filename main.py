@@ -42,25 +42,15 @@ MAX_LOGS = 500
 
 import os, json, threading
 
-# Gürültülü log kaynakları — buffer'a yazılmasın
-_NOISE_SOURCES = {"uvicorn.access", "uvicorn.error", "asyncio", "concurrent.futures"}
-_NOISE_MSGS = ("asyncio/runners", "uvloop/loop", "until_complete", "run_until_complete",
-               "GET /status", "GET /health", "GET /execution", 'HTTP/1.1" 200')
-
 class _BufferHandler(logging.Handler):
     _fmt = logging.Formatter("%(message)s")
 
     def emit(self, record):
         try:
-            # HTTP access logları ve asyncio internal hatalarını filtrele
-            if record.name in _NOISE_SOURCES:
-                return
+            t   = self._fmt.formatTime(record, "%H:%M:%S")
             msg = record.getMessage()
-            if any(n in msg for n in _NOISE_MSGS):
-                return
             if len(msg) > 500:
                 msg = msg[:497] + "..."
-            t = self._fmt.formatTime(record, "%H:%M:%S")
             entry = {"time": t, "level": record.levelname, "message": msg, "name": record.name}
             _log_buffer.append(entry)
             if len(_log_buffer) > MAX_LOGS:
@@ -487,10 +477,7 @@ async def live_positions(request: Request):
         dc = request.app.state.data_client
         if not dc.exchange or not dc._auth_ok:
             return {"ok": False, "reason": "Binance bağlı değil", "positions": []}
-        try:
-            raw = await asyncio.wait_for(dc.exchange.fetch_positions(), timeout=8.0)
-        except asyncio.TimeoutError:
-            return {"ok": False, "reason": "fetch_positions timeout (8s)", "positions": []}
+        raw = await dc.exchange.fetch_positions()
         positions = []
         for p in raw:
             contracts = float(p.get("contracts") or p.get("info", {}).get("positionAmt") or 0)
@@ -536,43 +523,6 @@ async def live_positions(request: Request):
                 "liquidation_price": liq,
                 "margin": abs(margin),
             })
-        # Açık emirleri 3sn timeout ile çek (SL/TP bilgisi)
-        try:
-            raw_orders = await asyncio.wait_for(
-                dc.exchange.fetch_open_orders(), timeout=3.0
-            )
-            sl_map, tp_map = {}, {}
-            for o in raw_orders:
-                osym  = (o.get("symbol") or "").replace("/","").replace(":USDT","")
-                otype = (o.get("type") or "").upper()
-                ostop = float(o.get("stopPrice") or o.get("price") or 0)
-                reduce = o.get("reduceOnly") or o.get("info", {}).get("reduceOnly") == "true"
-                if not reduce or ostop <= 0:
-                    continue
-                for p in positions:
-                    if osym != p["symbol"]:
-                        continue
-                    entry_p = p.get("entry_price", 0)
-                    pside   = p.get("side", "LONG")
-                    if otype in ("STOP_MARKET", "STOP"):
-                        sl_map[osym] = ostop
-                    elif otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
-                        tp_map[osym] = ostop
-                    elif otype == "LIMIT" and entry_p > 0:
-                        # testnet fallback: fiyata göre SL/TP ayır
-                        is_tp = (pside == "LONG" and ostop > entry_p) or (pside == "SHORT" and ostop < entry_p)
-                        if is_tp:
-                            tp_map[osym] = ostop
-                        else:
-                            sl_map[osym] = ostop
-            for p in positions:
-                p["sl"] = sl_map.get(p["symbol"], 0)
-                p["tp"] = tp_map.get(p["symbol"], 0)
-        except asyncio.TimeoutError:
-            logger.debug("Açık emir fetch timeout (3s) — SL/TP gösterilmeyecek")
-        except Exception as oe:
-            logger.debug(f"SL/TP emir çekme hatası (önemsiz): {oe}")
-
         return {"ok": True, "positions": positions, "count": len(positions)}
     except Exception as e:
         logger.error(f"live_positions hatası: {e}", exc_info=True)
