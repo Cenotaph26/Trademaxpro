@@ -42,15 +42,25 @@ MAX_LOGS = 500
 
 import os, json, threading
 
+# Gürültülü log kaynakları — buffer'a yazılmasın
+_NOISE_SOURCES = {"uvicorn.access", "uvicorn.error", "asyncio", "concurrent.futures"}
+_NOISE_MSGS = ("asyncio/runners", "uvloop/loop", "until_complete", "run_until_complete",
+               "GET /status", "GET /health", "GET /execution", "HTTP/1.1" 200")
+
 class _BufferHandler(logging.Handler):
     _fmt = logging.Formatter("%(message)s")
 
     def emit(self, record):
         try:
-            t   = self._fmt.formatTime(record, "%H:%M:%S")
+            # HTTP access logları ve asyncio internal hatalarını filtrele
+            if record.name in _NOISE_SOURCES:
+                return
             msg = record.getMessage()
+            if any(n in msg for n in _NOISE_MSGS):
+                return
             if len(msg) > 500:
                 msg = msg[:497] + "..."
+            t = self._fmt.formatTime(record, "%H:%M:%S")
             entry = {"time": t, "level": record.levelname, "message": msg, "name": record.name}
             _log_buffer.append(entry)
             if len(_log_buffer) > MAX_LOGS:
@@ -477,7 +487,10 @@ async def live_positions(request: Request):
         dc = request.app.state.data_client
         if not dc.exchange or not dc._auth_ok:
             return {"ok": False, "reason": "Binance bağlı değil", "positions": []}
-        raw = await dc.exchange.fetch_positions()
+        try:
+            raw = await asyncio.wait_for(dc.exchange.fetch_positions(), timeout=8.0)
+        except asyncio.TimeoutError:
+            return {"ok": False, "reason": "fetch_positions timeout (8s)", "positions": []}
         positions = []
         for p in raw:
             contracts = float(p.get("contracts") or p.get("info", {}).get("positionAmt") or 0)
