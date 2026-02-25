@@ -136,32 +136,15 @@ class OrderExecutor:
 
         # STOP_MARKET / TAKE_PROFIT_MARKET için zorunlu parametreler
         order_type_upper = req.order_type.upper()
-
-        # Testnet kontrolü — testnet STOP_MARKET/TAKE_PROFIT_MARKET desteklemez
-        _is_testnet = getattr(getattr(self, "settings", None), "BINANCE_TESTNET", False)
-
         if order_type_upper in ("STOP_MARKET", "TAKE_PROFIT_MARKET"):
-            if _is_testnet:
-                # Testnet: LIMIT emrine dönüştür
-                order_type_upper = "LIMIT"
-                if req.stop_price:
-                    req.price = req.stop_price
-                params["timeInForce"] = "GTC"
-                logger.debug(f"[TESTNET] {req.order_type} → LIMIT @ {req.price}")
-            else:
-                if req.stop_price:
-                    params["stopPrice"] = req.stop_price
-                params["workingType"] = "CONTRACT_PRICE"
+            if req.stop_price:
+                params["stopPrice"] = req.stop_price
+            params["workingType"] = "CONTRACT_PRICE"   # ← Binance'nin istediği
 
         elif order_type_upper == "TRAILING_STOP_MARKET":
-            if _is_testnet:
-                # Testnet: trailing stop desteklenmiyor, atla
-                logger.debug(f"[TESTNET] TRAILING_STOP_MARKET atlandı (testnet desteklemez)")
-                return None
-            else:
-                if req.callback_rate is not None:
-                    params["callbackRate"] = req.callback_rate
-                params["workingType"] = "CONTRACT_PRICE"
+            if req.callback_rate is not None:
+                params["callbackRate"] = req.callback_rate
+            params["workingType"] = "CONTRACT_PRICE"
 
         if req.client_order_id:
             params["newClientOrderId"] = req.client_order_id
@@ -222,15 +205,6 @@ class OrderExecutor:
     async def close_position(self, symbol: str, side: str, quantity: float) -> Optional[OrderResult]:
         side_up    = side.upper()
         close_side = "SELL" if side_up in ("BUY", "LONG") else "BUY"
-        sym_ccxt   = _fmt_symbol(symbol)
-
-        # Önce açık SL/TP emirlerini iptal et (aksi halde reduce-only çakışır)
-        try:
-            await self.exchange.cancel_all_orders(sym_ccxt)
-            logger.info(f"[{symbol}] Mevcut emirler iptal edildi (kapatma öncesi)")
-        except Exception as e:
-            logger.warning(f"[{symbol}] Emirler iptal edilemedi (devam): {e}")
-
         req = OrderRequest(
             symbol=symbol, side=close_side, order_type="MARKET",
             quantity=quantity, reduce_only=True, strategy_tag="close_position",
