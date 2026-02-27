@@ -286,7 +286,7 @@ header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;ba
   <div class="hctrl">
     <div class="upt" id="h-upt">00:00:00</div>
     <div class="sdot" id="sdot"></div>
-    <div class="stxt c-dim" id="stxt">BAĞLANIYOR</div>
+    <div class="stxt c-dim" id="stxt">BAGLANIYOR</div>
     <button class="btn btn-go" id="btn-start" onclick="startAgent()">&#9654; BASLAT</button>
     <button class="btn btn-stop" id="btn-stop" onclick="stopAgent()">&#9632; DURDUR</button>
   </div>
@@ -576,14 +576,20 @@ const fmtUSD=n=>'$'+(Math.abs(n)<10000?n.toLocaleString('en-US',{minimumFraction
 // ═══ API ═════════════════════════════════════════════════
 async function apiFetch(url,opts){
   try{
-    const r=await fetch(url,opts);
+    const ctrl=new AbortController();
+    const tid=setTimeout(()=>ctrl.abort(),7000); // 7sn timeout
+    const r=await fetch(url,{...opts,signal:ctrl.signal});
+    clearTimeout(tid);
     if(!r.ok){
       let reason='HTTP '+r.status;
       try{const j=await r.json();reason=j.detail||j.reason||j.message||reason;}catch(e2){}
       return{ok:false,reason};
     }
     return await r.json();
-  }catch(e){return{ok:false,reason:e.message};}
+  }catch(e){
+    if(e.name==='AbortError')return{ok:false,reason:'timeout'};
+    return{ok:false,reason:e.message};
+  }
 }
 
 // ═══ AGENT CONTROL ═══════════════════════════════════════
@@ -658,9 +664,6 @@ function renderCoins(){
       '<button onclick="event.stopPropagation();openTrade(\''+s+'\',\'SELL\')" style="padding:3px 0;background:rgba(255,45,85,.07);border:1px solid rgba(255,45,85,.25);border-radius:2px;color:var(--red);font-family:var(--mono);font-size:8px;font-weight:700;cursor:pointer" onmouseover="this.style.background=\'rgba(255,45,85,.18)\'" onmouseout="this.style.background=\'rgba(255,45,85,.07)\'">▼ S</button>'+
       '</div></div>';
   }).join('');
-  if(!h && Object.keys(coins).length===0){
-    h='<div class="empty" style="grid-column:1/-1;padding:40px;text-align:center"><div style="color:var(--cyan);font-size:11px;letter-spacing:2px">⏳ PİYASA VERİSİ YÜKLENİYOR...</div><div style="color:var(--dim);font-size:9px;margin-top:6px">Binance bağlantısı kuruluyor</div></div>';
-  }
   document.getElementById('cg').innerHTML=h||'<div class="empty" style="grid-column:1/-1">Coin bulunamadi</div>';
   document.getElementById('coin-lbl').textContent=entries.length+' coin';
   document.getElementById('s-coins').textContent=entries.length;
@@ -1136,26 +1139,7 @@ async function poll(){
     const ov=await apiFetch('/status/overview');
     if(ov.balance!==undefined||ov.ok){D=ov;buildStats(ov);if(ov.balance>0)updatePnlCurve(ov.balance);pollErr=0;}
 
-    // Logs from backend — tam yenileme (duplicate sorunu çözüldü)
-    const logs=await apiFetch('/status/logs?limit=200');
-    if(logs&&logs.logs&&logs.logs.length){
-      // Backend'den gelen logları direkt kullan (kesin ve güncel)
-      const seen=new Set();
-      const merged=[];
-      // Önce mevcut local loglar
-      logBuffer.forEach(l=>{const k=(l.time||'')+'|'+(l.message||'');if(!seen.has(k)){seen.add(k);merged.push(l);}});
-      // Backend loglarını ekle
-      logs.logs.forEach(l=>{
-        const k=(l.time||'')+'|'+(l.message||'');
-        if(!seen.has(k)){seen.add(k);merged.push({time:l.time,level:l.level||'INFO',message:l.message||''});}
-      });
-      merged.sort((a,b)=>{const ta=a.time||'';const tb=b.time||'';return tb.localeCompare(ta);});
-      logBuffer=merged.slice(0,500);
-      renderLog();
-    } else if(logs&&!logs.logs){
-      // Bağlantı var ama log yok - sadece render et
-      renderLog();
-    }
+    // Loglar bağımsız interval'da çekiliyor (SQLite yavaşlamasın)
 
     // First poll: risk settings yükle
     if(firstPoll){
@@ -1163,7 +1147,8 @@ async function poll(){
       loadRiskSettings(ov.risk||{});
       firstPoll=false;
     }
-    updateTicker();  // ticker her poll'da güncelle
+    // Market fiyatları bağımsız interval'da yükleniyor
+    updateTicker();
 
     // Positions every 3s
     if(Math.floor(Date.now()/1000)%3===0)await loadPositions();
@@ -1179,59 +1164,56 @@ async function poll(){
     const el=Math.floor((Date.now()-poll._s)/1000);
     document.getElementById('h-upt').textContent=[Math.floor(el/3600),Math.floor((el%3600)/60),el%60].map(v=>String(v).padStart(2,'0')).join(':');
 
-  }catch(e){
-    pollErr++;
-    if(pollErr===1)addLog('⚠ Sunucu bağlantısı kuruluyor...','warn');
-    else if(pollErr===5)addLog('❌ Bağlantı hatası: '+e.message,'error');
-    // Bağlantı yok ama market verisi yüklenmişse BAGLANIYOR kalmasın
-    if(Object.keys(coins).length>0){
-      document.getElementById('stxt').textContent='VERİ YÜKLENDİ';
-      document.getElementById('stxt').className='stxt c-yellow';
-    }
-  }
+  }catch(e){pollErr++;if(pollErr<=3)addLog('Baglanti hatasi: '+e.message,'error');}
 }
 
 // ═══ INIT ════════════════════════════════════════════════
-// Market fiyatlarını bağımsız olarak yükle (overview başarısız olsa bile çalışır)
+// ─── Market yükleme (tamamen bağımsız) ───────────────────
 async function loadMarket(){
   try{
     const mkt=await apiFetch('/status/market');
     if(mkt&&mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){
       const nc={};
-      Object.entries(mkt.prices).forEach(([sym,p])=>{
-        nc[sym]={
-          price:       parseFloat(p.price)||0,
-          change:      parseFloat(p.change)||0,
-          high:        parseFloat(p.high)||0,
-          low:         parseFloat(p.low)||0,
-          quoteVolume: parseFloat(p.quoteVolume)||0,
-        };
+      Object.entries(mkt.prices).forEach(([s,p])=>{
+        nc[s]={price:parseFloat(p.price)||0,change:parseFloat(p.change)||0,
+               high:parseFloat(p.high)||0,low:parseFloat(p.low)||0,
+               quoteVolume:parseFloat(p.quoteVolume)||0};
       });
       Object.keys(coins).forEach(k=>delete coins[k]);
       Object.assign(coins,nc);
       renderCoins();
-      document.getElementById('s-coins').textContent=Object.keys(coins).length;
-      document.getElementById('coin-lbl').textContent=Object.keys(coins).length+' coin';
       if(!tickerBuilt){buildTicker();}else{updateTicker();}
-    } else if(mkt&&!mkt.ok){
-      // Hata mesajını coin grid'e yaz
-      const reason=mkt.reason||'Bağlantı bekleniyor';
-      if(Object.keys(coins).length===0){
-        document.getElementById('cg').innerHTML='<div class="empty" style="grid-column:1/-1;padding:30px;text-align:center"><div style="color:var(--yellow);font-size:10px">⏳ '+reason+'</div></div>';
-      }
     }
-  }catch(e){
-    if(Object.keys(coins).length===0){
-      document.getElementById('cg').innerHTML='<div class="empty" style="grid-column:1/-1;padding:30px;text-align:center"><div style="color:var(--dim);font-size:9px">Piyasa verisi yükleniyor...</div></div>';
-    }
-  }
+  }catch(e){console.warn('Market fetch:',e);}
 }
 
-initHover();poll();loadPositions();loadSignalHistory();loadMarket();
+// ─── Log yükleme (bağımsız, SQLite yavaş olabilir) ────────
+async function loadLogsFromBackend(){
+  try{
+    const logs=await apiFetch('/status/logs?limit=150');
+    if(!logs||!logs.logs||!logs.logs.length)return;
+    const seen=new Set(logBuffer.map(l=>(l.time||'')+'|'+(l.message||'')));
+    let added=0;
+    logs.logs.forEach(l=>{
+      const k=(l.time||'')+'|'+(l.message||'');
+      if(!seen.has(k)){seen.add(k);logBuffer.push({time:l.time,level:l.level||'INFO',message:l.message||''});added++;}
+    });
+    if(added>0){
+      logBuffer.sort((a,b)=>(b.time||'').localeCompare(a.time||''));
+      logBuffer=logBuffer.slice(0,500);
+      renderLog();
+    }
+  }catch(e){console.warn('Log fetch:',e);}
+}
+
+initHover();poll();loadPositions();loadSignalHistory();
+// Market: hemen + 5sn'de bir (poll'dan bağımsız)
+loadMarket();setInterval(loadMarket,5000);
+// Loglar: 1sn sonra başla + 10sn'de bir
+setTimeout(loadLogsFromBackend,1000);setInterval(loadLogsFromBackend,10000);
 setInterval(poll,2000);
 setInterval(loadPositions,5000);
 setInterval(loadSignalHistory,30000);
-setInterval(loadMarket,5000);  // Market verisi 5sn'de bir güncelle (poll'dan bağımsız)
 
 // Kalici trade gecmisini SQLite'den yukle (sayfa yenilemede kaybolmaz)
 async function loadPersistentHistory(){
@@ -1287,7 +1269,7 @@ setInterval(loadPersistentHistory,60000); // Her dakika guncelle
 setTimeout(async()=>{
   const ov=await apiFetch('/status/overview');
   if(ov&&ov.history&&ov.history.length>0){D.history=ov.history;buildHistory();}
-},500);setInterval(()=>{apiFetch('/status/market').then(mkt=>{if(mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){const nc={};Object.entries(mkt.prices).forEach(([s,d])=>{nc[s]={price:parseFloat(d.price)||0,change:parseFloat(d.change)||0,high:parseFloat(d.high)||0,low:parseFloat(d.low)||0,quoteVolume:parseFloat(d.quoteVolume)||0};});Object.keys(coins).forEach(k=>delete coins[k]);Object.assign(coins,nc);renderCoins();updateTicker();}});},3000);
+},500);// Market 5sn interval yukarıda tanımlı
 window.addEventListener('resize',()=>{if(chartMode==='pnl')drawPnlChart();});
 // Default strategies while waiting
 setTimeout(()=>{if(!Object.keys(D.strategies||{}).length){D.strategies={'Mean Reversion':{score:1.66,wr:38.1,trades:0},'Breakout':{score:1.42,wr:33.3,trades:0},'Trend Following':{score:1.30,wr:30.4,trades:0},'Scalping':{score:0.70,wr:15.4,trades:0},'VWAP Bounce':{score:0.64,wr:10.0,trades:0}};buildStrategies();}},1500);
