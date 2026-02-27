@@ -177,7 +177,7 @@ async def get_symbols(request: Request):
         # Fallback: bilinen popüler semboller
         fallback = [
             "BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT",
-            "ADAUSDT","AVAXUSDT","LINKUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
+            "ADAUSDT","AVAXUSDT","LINKUSDT","DOTUSDT","POLUSDT","LTCUSDT",
             "ATOMUSDT","UNIUSDT","NEARUSDT","APTUSDT","ARBUSDT","OPUSDT",
             "SHIBUSDT","TRXUSDT","ETCUSDT","XLMUSDT","VETUSDT","FILUSDT",
             "SANDUSDT","MANAUSDT","AAVEUSDT","SNXUSDT","CRVUSDT","MKRUSDT",

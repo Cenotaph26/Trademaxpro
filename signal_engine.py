@@ -200,7 +200,7 @@ class SignalScore:
 ALL_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
     "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT",
-    "MATICUSDT", "LTCUSDT", "ATOMUSDT", "NEARUSDT", "ARBUSDT",
+    "POLUSDT", "LTCUSDT", "ATOMUSDT", "NEARUSDT", "ARBUSDT",
 ]
 
 
@@ -326,6 +326,9 @@ class AutoSignalEngine:
                 candles_5m = list(ds.klines_5m)
                 current_price = ds.mark_price
             else:
+                if not symbol.upper().endswith("USDT"):
+                    logger.warning(f"[{symbol}] USDT ile bitmeyen sembol atlandı")
+                    return
                 sym_fmt = symbol[:-4] + "/USDT:USDT"
                 raw_1h = await self.data.exchange.fetch_ohlcv(sym_fmt, "1h", limit=200)
                 raw_5m = await self.data.exchange.fetch_ohlcv(sym_fmt, "5m", limit=60)
