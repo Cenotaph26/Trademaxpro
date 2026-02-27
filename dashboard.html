@@ -497,8 +497,8 @@ header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;ba
         <div>
           <div style="font-size:7px;letter-spacing:1.5px;color:var(--dim);margin-bottom:4px;text-transform:uppercase">Kaldıraç</div>
           <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:3px" id="tm-lev-btns">
-            <button onclick="setTradeLev(1,this)" style="padding:5px 2px;background:rgba(0,229,255,.1);border:1px solid var(--cyan);border-radius:var(--r);color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer">1x</button>
-            <button onclick="setTradeLev(3,this)" style="padding:5px 2px;background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--dim);font-family:var(--mono);font-size:9px;cursor:pointer">3x</button>
+            <button onclick="setTradeLev(1,this)" style="padding:5px 2px;background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--dim);font-family:var(--mono);font-size:9px;cursor:pointer">1x</button>
+            <button onclick="setTradeLev(3,this)" style="padding:5px 2px;background:rgba(0,229,255,.1);border:1px solid var(--cyan);border-radius:var(--r);color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer">3x</button>
             <button onclick="setTradeLev(5,this)" style="padding:5px 2px;background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--dim);font-family:var(--mono);font-size:9px;cursor:pointer">5x</button>
             <button onclick="setTradeLev(10,this)" style="padding:5px 2px;background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--dim);font-family:var(--mono);font-size:9px;cursor:pointer">10x</button>
             <button onclick="setTradeLev(20,this)" style="padding:5px 2px;background:none;border:1px solid var(--b2);border-radius:var(--r);color:var(--dim);font-family:var(--mono);font-size:9px;cursor:pointer">20x</button>
@@ -1021,7 +1021,7 @@ async function loadSignalHistory(){
 }
 
 // ═══ MANUEL İŞLEM MODAL ══════════════════════════════════
-let _tradeSym='', _tradeSide='BUY', _tradeLev=1;
+let _tradeSym='', _tradeSide='BUY', _tradeLev=3;
 
 function openTrade(sym, side){
   // TradFi/delisted sembol kontrolü
@@ -1045,7 +1045,7 @@ function openTrade(sym, side){
   document.getElementById('tm-tp').value=tp;
   document.getElementById('tm-sl').value=sl;
   setTradeSide(side);
-  setTradeLev(1, document.querySelector('#tm-lev-btns button'));
+  setTradeLev(3, document.querySelectorAll('#tm-lev-btns button')[1]);
   updateTradeSummary();
   document.getElementById('trade-modal').classList.add('open');
 }
@@ -1089,7 +1089,16 @@ function updateTradeSummary(){
   const tp=parseFloat(document.getElementById('tm-tp')?.value||3);
   const sl=parseFloat(document.getElementById('tm-sl')?.value||1.5);
   const notional=qty*_tradeLev;
-  document.getElementById('tm-notional').textContent='$'+notional.toFixed(0);
+  const notEl=document.getElementById('tm-notional');
+  notEl.textContent='$'+notional.toFixed(0);
+  // Minimum notional uyarısı
+  if(notional<110){
+    notEl.style.color='var(--red)';
+    notEl.title='⚠ Min 110 USDT gerekli! Miktar veya kaldıracı artırın.';
+  } else {
+    notEl.style.color='var(--text)';
+    notEl.title='';
+  }
   if(price>0){
     const tpP=_tradeSide==='BUY'?price*(1+tp/100):price*(1-tp/100);
     const slP=_tradeSide==='BUY'?price*(1-sl/100):price*(1+sl/100);
@@ -1107,6 +1116,17 @@ async function submitTrade(){
   const btn=document.getElementById('tm-submit');
   const res_el=document.getElementById('tm-result');
   if(!_tradeSym){res_el.textContent='⚠ Sembol seçilmedi';return;}
+  
+  // Minimum notional kontrolü (Binance min 100 USDT, güvenlik için 110 USDT)
+  const qty=parseFloat(document.getElementById('tm-qty').value)||50;
+  const notional=qty*_tradeLev;
+  if(notional<110){
+    res_el.style.color='var(--red)';
+    res_el.textContent=`❌ Minimum işlem büyüklüğü 110 USDT (şu an: $${notional.toFixed(0)}). Miktarı veya kaldıracı artırın.`;
+    addLog(`❌ Notional çok küçük: $${notional.toFixed(0)} < $110 min`,'error');
+    return;
+  }
+  
   btn.disabled=true;btn.textContent='GÖNDERILIYOR...';btn.style.opacity='0.6';
   const payload={
     symbol: (()=>{let s=_tradeSym.replace(':USDT','').replace('/USDT','').replace('USDT','').toUpperCase();return s+'USDT';})(),

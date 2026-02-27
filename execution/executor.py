@@ -394,6 +394,21 @@ class OrderExecutor:
             return {"ok": False, "reason": reason}
 
         # SL / TP (hata olursa loglayıp devam et)
+        # Testnet'te STOP_MARKET / TAKE_PROFIT_MARKET desteklenmez (Algo endpoint gerekir)
+        # Bu emirler gönderilince -4120 hatası alınır ve emergency MARKET kapat tetiklenir
+        # Bu da pozisyonu 1-2 sn içinde kapatır. Testnet'te SL/TP atlanıyor.
+        _is_testnet = getattr(self.settings, "BINANCE_TESTNET", True)
+        if _is_testnet:
+            if sl_pct > 0 or tp_pct > 0:
+                logger.info(f"[{symbol}] Testnet: SL/TP emirleri atlandı (STOP_MARKET desteklenmiyor, pozisyon açık kalıyor)")
+            return {
+                "ok":       True,
+                "order_id": result.order_id,
+                "avg_price": result.avg_price,
+                "quantity":  adj_qty,
+                "strategy":  strategy_tag,
+            }
+
         sl_side: Side = "SELL" if side == "BUY" else "BUY"
 
         if sl_pct > 0 and mark_price > 0:
@@ -449,6 +464,12 @@ class OrderExecutor:
                                  quantity=adj_qty, strategy_tag=strategy_tag)
         results["entry"] = await self.place_order(entry_req, expected_price=entry_price)
         if not results["entry"]:
+            return results
+
+        # Testnet'te SL/TP desteklenmez — sadece entry emri yeterli
+        _is_testnet = getattr(self.settings, "BINANCE_TESTNET", True)
+        if _is_testnet:
+            logger.info(f"[{symbol}] Testnet: Bracket SL/TP atlandı (STOP_MARKET desteklenmiyor)")
             return results
 
         sl_side: Side = "SELL" if side == "BUY" else "BUY"
