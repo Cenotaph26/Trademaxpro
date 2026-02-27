@@ -156,6 +156,10 @@ async def lifespan(app: FastAPI):
                 continue
             await asyncio.sleep(restart_delay)
 
+    # SmartExit önce oluştur, sonra task başlat
+    global smart_exit_engine
+    smart_exit_engine = SmartExitEngine(data_client, strategy_manager, settings)
+
     asyncio.create_task(supervised_task(data_client.stream_market_data, "MarketData", 10))
     asyncio.create_task(supervised_task(risk_engine.monitor_loop,        "RiskMonitor", 15))
     asyncio.create_task(supervised_task(rl_agent.learning_loop,          "RLAgent",     20))
@@ -167,7 +171,6 @@ async def lifespan(app: FastAPI):
     app.state.strategy_manager = strategy_manager
     app.state.rl_agent         = rl_agent
     app.state.signal_engine    = signal_engine
-    smart_exit_engine = SmartExitEngine(data_client, strategy_manager, settings)
     app.state.smart_exit       = smart_exit_engine
 
     logger.info("✅ Bot hazır!")
