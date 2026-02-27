@@ -286,7 +286,10 @@ class StrategyManager:
             except Exception:
                 pass
 
-            return {"ok": result is not None, "symbol": symbol, "qty": qty, "side": pos_side}
+            if result is None:
+                logger.warning(f"⚠ close_position: {symbol} emir başarısız (None) — muhtemelen zaten kapalı")
+                return {"ok": False, "symbol": symbol, "qty": qty, "side": pos_side, "reason": "Emir gönderilemedi — pozisyon zaten kapalı olabilir"}
+            return {"ok": True, "symbol": symbol, "qty": qty, "side": pos_side}
         except Exception as e:
             err_s = str(e)
             if "-2022" in err_s or "ReduceOnly" in err_s:

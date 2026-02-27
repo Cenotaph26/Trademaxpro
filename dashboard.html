@@ -890,7 +890,8 @@ async function loadPositions(){
 async function closePos(sym,side){
   if(!confirm(sym+' '+side+' pozisyonunu kapatmak istiyor musunuz?'))return;
   const res=await apiFetch('/execution/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym,side})});
-  addLog(res.ok?'✅ Pozisyon kapatildi: '+sym+' '+side:'❌ Kapatma hatasi ['+sym+']: '+(res.reason||'Bilinmeyen'),res.ok?'ok':'error');
+  const closeMsg=res.ok?'✅ Pozisyon kapatildi: '+sym+' '+side:'❌ Kapatma hatasi ['+sym+']: '+(res.reason||'Emir reddedildi — pozisyon zaten kapali olabilir');
+  addLog(closeMsg,res.ok?'ok':'error');
   if(res.ok)setTimeout(loadPositions,800);
 }
 

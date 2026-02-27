@@ -210,12 +210,19 @@ class SmartExitEngine:
                         logger.info(f"✅ Smart Exit kapatıldı: {sym} {side} PnL={upnl:+.2f}")
                         self._open_since.pop(sym, None)
                         self._partial_done.discard(f"{sym}_{side}_partial")
-                    elif result and result.get("reason") == "zaten_kapali":
+                    elif result and result.get("reason") in ("zaten_kapali", "qty=0"):
                         logger.info(f"ℹ️ Smart Exit: {sym} zaten kapalıydı")
                         self._open_since.pop(sym, None)
                     elif result and result.get("qty", 1) == 0:
                         logger.info(f"ℹ️ Smart Exit: {sym} miktar=0, kapalı")
                         self._open_since.pop(sym, None)
+                    elif result and not result.get("ok"):
+                        reason_txt = result.get("reason", "")
+                        if "zaten" in reason_txt or "None" in reason_txt or "gönderilemedi" in reason_txt:
+                            logger.info(f"ℹ️ Smart Exit: {sym} zaten kapalı (sinyal/SL tarafından kapanmış)")
+                            self._open_since.pop(sym, None)
+                        else:
+                            logger.warning(f"⚠ Smart Exit kapama başarısız: {sym} — {reason_txt or result}")
                     else:
                         logger.warning(f"⚠ Smart Exit kapama: {sym} — {result}")
                 except Exception as e:
