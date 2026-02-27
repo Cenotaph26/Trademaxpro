@@ -136,10 +136,14 @@ class OrderExecutor:
 
         # STOP_MARKET / TAKE_PROFIT_MARKET için zorunlu parametreler
         order_type_upper = req.order_type.upper()
-        if order_type_upper in ("STOP_MARKET", "TAKE_PROFIT_MARKET"):
+        if order_type_upper in ("STOP_MARKET", "TAKE_PROFIT_MARKET",
+                                 "STOP", "TAKE_PROFIT"):
             if req.stop_price:
                 params["stopPrice"] = req.stop_price
-            params["workingType"] = "CONTRACT_PRICE"   # ← Binance'nin istediği
+                # ccxt bazı versiyonlarda price olarak da isteyebilir
+                params["price"] = req.stop_price
+            params["workingType"] = "CONTRACT_PRICE"
+            params["priceProtect"]  = False   # Binance zorunlu
 
         elif order_type_upper == "TRAILING_STOP_MARKET":
             if req.callback_rate is not None:
@@ -176,9 +180,10 @@ class OrderExecutor:
                 raw=raw,
             )
             self._order_log.append(result)
+            sp_info = f" stopPrice={req.stop_price:.6g}" if req.stop_price else ""
             logger.info(
-                f"✅ Emir: {req.side} {req.quantity} {req.symbol} "
-                f"[{order_type_upper}] @ {avg_price:.6g} (slip={slippage:.3f}%) [{req.strategy_tag}]"
+                f"✅ Emir: {req.side} {req.quantity:.6g} {req.symbol} "
+                f"[{order_type_upper}]{sp_info} @ {avg_price:.6g} (slip={slippage:.3f}%) [{req.strategy_tag}]"
             )
             return result
 
@@ -244,7 +249,7 @@ class OrderExecutor:
                     symbol=symbol, side=sl_side,
                     order_type="STOP_MARKET",
                     quantity=adj_qty,
-                    stop_price=round(sl_price, 6),
+                    stop_price=round(sl_price, 8),  # hassas yuvarlama
                     reduce_only=True,
                     strategy_tag=f"{strategy_tag}_sl",
                 ))
@@ -258,7 +263,7 @@ class OrderExecutor:
                     symbol=symbol, side=sl_side,
                     order_type="TAKE_PROFIT_MARKET",
                     quantity=adj_qty,
-                    stop_price=round(tp_price, 6),
+                    stop_price=round(tp_price, 8),
                     reduce_only=True,
                     strategy_tag=f"{strategy_tag}_tp",
                 ))
@@ -318,7 +323,7 @@ class OrderExecutor:
                     symbol=symbol, side=sl_side,
                     order_type="TAKE_PROFIT_MARKET",
                     quantity=tp_qty,
-                    stop_price=round(tp_price, 6),
+                    stop_price=round(tp_price, 8),
                     reduce_only=True,
                     strategy_tag=f"{strategy_tag}_tp",
                 ))

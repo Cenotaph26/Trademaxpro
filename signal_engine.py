@@ -298,6 +298,14 @@ class AutoSignalEngine:
             logger.warning("Binance bağlantısı yok, tarama atlandı")
             return
 
+        # Kill switch kontrolü
+        try:
+            if self.risk and self.risk.state.kill_switch_active:
+                logger.debug(f"[{symbol}] Kill switch aktif — tarama atlandı")
+                return
+        except Exception:
+            pass
+
         # Auth kontrolü (testnet dahil)
         if not getattr(self.data, "_auth_ok", True):
             logger.warning("Binance API auth başarısız — sinyal üretiliyor ama işlem açılamaz")

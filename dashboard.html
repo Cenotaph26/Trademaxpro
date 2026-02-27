@@ -873,7 +873,7 @@ async function loadPositions(){
       +'<div class="pc-top"><div><div class="pc-sym">'+(sym.replace(':USDT','').replace('USDT',''))+'<span style="font-size:8px;color:var(--dim)">/USDT</span></div>'
       +'<div class="pc-tags"><span class="pct '+(isL?'lt':'st')+'">'+pos.side+'</span><span class="levt">'+(pos.leverage||1)+'x</span>'+(conf?'<span class="ait">AI '+parseFloat(conf).toFixed(0)+'%</span>':'')+'</div></div>'
       +'<div class="pc-pnl"><div class="pc-pnl-m '+cl(pnl)+'">'+fpp(pnl)+'</div><div class="pc-pnl-p">'+fpct(pnlPct)+'</div></div></div>'
-      +'<div class="pc-px"><span>Giris <b>$'+fp(entry)+'</b></span><span>Anlik <b style="color:var(--cyan)">$'+fp(cur)+'</b></span><span>TP <b style="color:var(--green)">$'+(tp>0?fp(tp):'--')+'</b></span><span>SL <b style="color:var(--red)">$'+(sl>0?fp(sl):'--')+'</b></span>'+(liq>0?'<span>Liq <b style="color:var(--red)">$'+fp(liq)+'</b></span>':'')+'</div>'
+      +'<div class="pc-px"><span>Giris <b>$'+fp(entry)+'</b></span><span>Anlik <b style="color:var(--cyan)">$'+fp(cur)+'</b></span><span>TP <b style="color:var(--green)">$'+(tp>0?fp(tp):'--')+'</b>'+(pos.has_tp_order?'<span style="font-size:7px;color:var(--green)"> ✓EMR</span>':'<span style="font-size:7px;color:#ff9800"> ⚠</span>')+'</span><span>SL <b style="color:var(--red)">$'+(sl>0?fp(sl):'--')+'</b>'+(pos.has_sl_order?'<span style="font-size:7px;color:var(--green)"> ✓EMR</span>':'<span style="font-size:7px;color:#ff9800"> ⚠</span>')+'+(liq>0?'<span>Liq <b style="color:var(--red)">$'+fp(liq)+'</b></span>':'')+'</div>'
       +(tp>0&&sl>0?'<div class="prog-wrap"><div style="display:flex;justify-content:space-between;font-size:7px;margin-bottom:2px"><span style="color:var(--red)">SL</span><span style="color:var(--dim)">'+prog.toFixed(0)+'%</span><span style="color:var(--green)">TP</span></div><div class="prog-bg"><div class="prog-fill" style="width:'+prog+'%;background:'+progC+'"></div></div></div>':'')
       +'<div class="pc-inds">'+( strat?'<span class="ic ic-l">'+strat+'</span>':'')+'<button class="chart-btn" onclick="showCandleChart(\''+sym+'\')">GRAFIK</button></div>'
       +(reasons.length?'<div class="pc-ai"><div class="pc-ai-l">AI ANALIZ</div><div class="pc-ai-t">'+reasons.join(' · ')+'</div></div>':'')
@@ -1133,19 +1133,24 @@ async function poll(){
     const ov=await apiFetch('/status/overview');
     if(ov.balance!==undefined||ov.ok){D=ov;buildStats(ov);if(ov.balance>0)updatePnlCurve(ov.balance);pollErr=0;}
 
-    // Logs from backend — merging with local buffer
-    const logs=await apiFetch('/status/logs?limit=100');
-    if(logs.ok&&logs.logs){
+    // Logs from backend — tam yenileme (duplicate sorunu çözüldü)
+    const logs=await apiFetch('/status/logs?limit=200');
+    if(logs&&logs.logs&&logs.logs.length){
+      // Backend'den gelen logları direkt kullan (kesin ve güncel)
+      const seen=new Set();
+      const merged=[];
+      // Önce mevcut local loglar
+      logBuffer.forEach(l=>{const k=(l.time||'')+'|'+(l.message||'');if(!seen.has(k)){seen.add(k);merged.push(l);}});
+      // Backend loglarını ekle
       logs.logs.forEach(l=>{
-        const key=l.time+'|'+l.message;
-        const exists=logBuffer.some(lb=>lb.time===l.time&&lb.message===l.message);
-        if(!exists)logBuffer.push({time:l.time,level:l.level,message:l.message||''});
+        const k=(l.time||'')+'|'+(l.message||'');
+        if(!seen.has(k)){seen.add(k);merged.push({time:l.time,level:l.level||'INFO',message:l.message||''});}
       });
-      // Sort newest first
-      logBuffer.sort((a,b)=>{
-        const ta=a.time||'00:00:00';const tb=b.time||'00:00:00';return tb.localeCompare(ta);
-      });
-      if(logBuffer.length>600)logBuffer=logBuffer.slice(0,500);
+      merged.sort((a,b)=>{const ta=a.time||'';const tb=b.time||'';return tb.localeCompare(ta);});
+      logBuffer=merged.slice(0,500);
+      renderLog();
+    } else if(logs&&!logs.logs){
+      // Bağlantı var ama log yok - sadece render et
       renderLog();
     }
 

@@ -94,7 +94,11 @@ class RiskEngine:
     def deactivate_kill_switch(self):
         self.state.kill_switch_active = False
         self.state.kill_switch_reason = None
-        logger.warning("Kill switch devre dışı bırakıldı (manuel)")
+        # Peak'i mevcut değere sıfırla — eski drawdown'ı temizle
+        self.state.peak_equity = self.state.current_equity
+        self.state.current_drawdown_pct = 0.0
+        self.state.consecutive_losses = 0
+        logger.warning("Kill switch devre dışı (manuel) — drawdown sıfırlandı")
 
     # ─── Pre-trade checks ──────────────────────────────────────────
 
@@ -179,13 +183,17 @@ class RiskEngine:
     async def update_equity(self, equity: float):
         async with self._lock:
             self.state.current_equity = equity
-            if equity > self.state.peak_equity:
+            # Peak sadece anlamlı miktarda yükseldiyse güncelle (gürültü filtresi)
+            if equity > self.state.peak_equity * 1.001 or self.state.peak_equity == 0:
                 self.state.peak_equity = equity
             if self.state.peak_equity > 0:
-                self.state.current_drawdown_pct = (
+                self.state.current_drawdown_pct = max(0.0,
                     (self.state.peak_equity - equity) / self.state.peak_equity * 100
                 )
-            if self.state.current_drawdown_pct >= self.s.MAX_DRAWDOWN_PCT:
+            # Kill switch: sadece kill_switch devre dışıysa tetikle
+            if (not self.state.kill_switch_active and
+                    self.state.current_drawdown_pct >= self.s.MAX_DRAWDOWN_PCT and
+                    self.state.peak_equity > 100):  # gerçek bakiye var mı?
                 self.activate_kill_switch(KillSwitchReason.MAX_DRAWDOWN)
 
     def update_position_counts(self, long_count, short_count, open_symbols=None):

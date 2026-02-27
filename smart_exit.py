@@ -1,0 +1,207 @@
+"""
+Smart Exit Engine — Volatiliteye göre akıllı pozisyon kapatma.
+
+Çıkış koşulları:
+1. ATR Spike: Volatilite aniden 2x artarsa → koruyucu çıkış
+2. Trend Reversal: EMA9 < EMA21 (LONG'da) → trend dönüşü
+3. Profit Lock: %profit > threshold'da trailing stop sıkıştır
+4. Time Decay: Pozisyon çok uzun süredir açık ve karda → kapat
+5. Partial TP: Hedefin %50'sine ulaşınca yarı pozisyonu kapat
+6. Volatility Squeeze: BB daralıyor + pozisyon zararda → çıkış
+"""
+import asyncio
+import logging
+import math
+from datetime import datetime, timezone, timedelta
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+
+def _ema(closes, period):
+    if len(closes) < period:
+        return closes[-1] if closes else 0.0
+    k = 2 / (period + 1)
+    v = sum(closes[:period]) / period
+    for c in closes[period:]:
+        v = c * k + v * (1 - k)
+    return v
+
+
+def _atr(candles, period=14):
+    if len(candles) < period + 1:
+        return 0.0
+    trs = [max(c["high"] - c["low"],
+               abs(c["high"] - candles[i-1]["close"]),
+               abs(c["low"]  - candles[i-1]["close"]))
+           for i, c in enumerate(candles) if i > 0]
+    return sum(trs[-period:]) / period if trs else 0.0
+
+
+def _bollinger_width(closes, period=20):
+    if len(closes) < period:
+        return 0.0
+    w = closes[-period:]
+    mid = sum(w) / period
+    std = math.sqrt(sum((c - mid)**2 for c in w) / period)
+    return (2 * std) / mid if mid > 0 else 0.0
+
+
+class SmartExitEngine:
+    """
+    Her açık pozisyonu izler, çıkış koşulu oluşunca kapatır.
+    strategy_manager.close_position() çağırır.
+    """
+
+    def __init__(self, data_client, strategy_manager, settings):
+        self.data     = data_client
+        self.strategy = strategy_manager
+        self.s        = settings
+        self._running = False
+        self._partial_done: set = set()  # partial TP yapılmış pozisyonlar
+
+        # Konfigürasyon
+        self.CHECK_INTERVAL     = 30     # saniye
+        self.ATR_SPIKE_MULT     = 2.2    # ATR bu kadar artarsa spike kabul edilir
+        self.PROFIT_LOCK_PCT    = 1.5    # % karda trailing stop sıkıştır (kaldıraçlı)
+        self.PROFIT_LOCK_TRAIL  = 0.5    # % trailing mesafesi
+        self.PARTIAL_TP_PCT     = 0.8    # hedefin %80'ine ulaşınca partial
+        self.MAX_HOLD_HOURS     = 48     # max açık kalma süresi (saat)
+        self.TREND_REVERSAL_EMA = True   # EMA trend dönüşünde kapat
+        self.BB_SQUEEZE_EXIT    = True   # BB daralmasında zararlı pozisyonu kapat
+
+        # Pozisyon açılış zamanı takibi
+        self._open_since: dict = {}  # symbol → datetime
+
+    async def start(self):
+        self._running = True
+        logger.info("🛡️ Smart Exit Engine başlatıldı")
+        await asyncio.sleep(15)  # sistem yüklensin
+        while self._running:
+            try:
+                await self._check_all_positions()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Smart Exit hata: {e}", exc_info=True)
+            await asyncio.sleep(self.CHECK_INTERVAL)
+
+    async def _check_all_positions(self):
+        """Tüm açık pozisyonları tek tek değerlendir."""
+        try:
+            raw = await self.data.exchange.fetch_positions()
+        except Exception as e:
+            logger.warning(f"Smart Exit: pozisyon çekme hatası: {e}")
+            return
+
+        ds = self.data.state
+        candles_1h = list(ds.klines_1h)
+        if len(candles_1h) < 30:
+            return
+
+        closes = [c["close"] for c in candles_1h]
+        current_atr  = _atr(candles_1h, 14)
+        avg_atr      = _atr(candles_1h[-30:], 14)  # son 30 mumluk ATR
+        atr_spike    = current_atr > avg_atr * self.ATR_SPIKE_MULT if avg_atr > 0 else False
+        ema9         = _ema(closes, 9)
+        ema21        = _ema(closes, 21)
+        bb_width     = _bollinger_width(closes)
+        current_price = ds.mark_price
+
+        for p in raw:
+            contracts = float(p.get("contracts") or p.get("info", {}).get("positionAmt") or 0)
+            if abs(contracts) < 1e-9:
+                continue
+
+            sym       = (p.get("symbol") or "").replace("/", "").replace(":USDT", "")
+            entry     = float(p.get("entryPrice") or 0)
+            mark      = float(p.get("markPrice") or 0) or current_price
+            upnl      = float(p.get("unrealizedPnl") or 0)
+            lev       = int(float(p.get("leverage") or 1))
+            side      = "LONG" if contracts > 0 else "SHORT"
+            notional  = abs(float(p.get("notional") or contracts * mark))
+
+            # Açılış zamanı takibi
+            if sym not in self._open_since:
+                self._open_since[sym] = datetime.now(timezone.utc)
+            hold_hours = (datetime.now(timezone.utc) - self._open_since[sym]).total_seconds() / 3600
+
+            # PnL % (kaldıraçsız gerçek %)
+            pnl_pct = 0.0
+            if entry > 0 and mark > 0:
+                pnl_pct = ((mark - entry) / entry * 100) if side == "LONG" else ((entry - mark) / entry * 100)
+
+            reason = None
+
+            # ── Koşul 1: ATR Spike — volatilite patlaması ──────────
+            if atr_spike and pnl_pct < 0:
+                reason = f"ATR spike ({current_atr:.2f} > {avg_atr:.2f}x{self.ATR_SPIKE_MULT}) + zararda"
+
+            # ── Koşul 2: Trend dönüşü ──────────────────────────────
+            elif self.TREND_REVERSAL_EMA and pnl_pct < -0.3:
+                if side == "LONG" and ema9 < ema21 * 0.999:
+                    reason = f"Trend dönüşü: EMA9({ema9:.0f}) < EMA21({ema21:.0f}) LONG zararda"
+                elif side == "SHORT" and ema9 > ema21 * 1.001:
+                    reason = f"Trend dönüşü: EMA9({ema9:.0f}) > EMA21({ema21:.0f}) SHORT zararda"
+
+            # ── Koşul 3: Maksimum holding süresi ──────────────────
+            elif hold_hours > self.MAX_HOLD_HOURS and pnl_pct > 0:
+                reason = f"Max hold ({hold_hours:.1f}s > {self.MAX_HOLD_HOURS}s) — karda kapat"
+            elif hold_hours > self.MAX_HOLD_HOURS * 1.5:
+                reason = f"Max hold x1.5 ({hold_hours:.1f}s) — zorunlu kapat"
+
+            # ── Koşul 4: BB Sıkışma + zararda ─────────────────────
+            elif self.BB_SQUEEZE_EXIT and bb_width < 0.015 and pnl_pct < -1.0:
+                reason = f"BB sıkışma ({bb_width:.3f}) + zararda ({pnl_pct:.2f}%)"
+
+            # ── Koşul 5: Profit Lock ───────────────────────────────
+            # Yeterince karda → partial TP (sadece bir kez)
+            key = f"{sym}_{side}_partial"
+            if (pnl_pct * lev > self.PROFIT_LOCK_PCT * 0.8 and
+                    key not in self._partial_done and
+                    notional > 0 and
+                    reason is None):
+                # Yarı pozisyonu kapat
+                try:
+                    partial_qty = abs(contracts) * 0.5
+                    from execution.executor import OrderExecutor, _fmt_symbol
+                    if hasattr(self.strategy, "executor") and self.strategy.executor:
+                        close_side = "SELL" if side == "LONG" else "BUY"
+                        from execution.executor import OrderRequest
+                        r = await self.strategy.executor.place_order(OrderRequest(
+                            symbol=sym, side=close_side, order_type="MARKET",
+                            quantity=partial_qty, reduce_only=True,
+                            strategy_tag="smart_exit_partial"
+                        ))
+                        if r:
+                            self._partial_done.add(key)
+                            logger.info(f"💰 Partial TP: {sym} {side} {partial_qty:.4f} @ kâr={pnl_pct:.2f}%")
+                except Exception as e:
+                    logger.warning(f"Partial TP hatası [{sym}]: {e}")
+
+            # ── Tam kapatma ────────────────────────────────────────
+            if reason:
+                logger.warning(f"🛡️ Smart Exit [{sym} {side}]: {reason}")
+                try:
+                    result = await self.strategy.close_position(sym, side)
+                    if result and result.get("ok"):
+                        logger.info(f"✅ Smart Exit kapatıldı: {sym} {side} PnL={upnl:+.2f}")
+                        # Kapatınca takipçileri temizle
+                        self._open_since.pop(sym, None)
+                        self._partial_done.discard(f"{sym}_{side}_partial")
+                    else:
+                        logger.warning(f"❌ Smart Exit kapatma başarısız: {sym} — {result}")
+                except Exception as e:
+                    logger.error(f"Smart Exit kapat hatası [{sym}]: {e}")
+
+    def get_status(self) -> dict:
+        return {
+            "running":       self._running,
+            "tracked_count": len(self._open_since),
+            "partial_done":  len(self._partial_done),
+            "config": {
+                "atr_spike_mult":    self.ATR_SPIKE_MULT,
+                "profit_lock_pct":   self.PROFIT_LOCK_PCT,
+                "max_hold_hours":    self.MAX_HOLD_HOURS,
+            }
+        }

@@ -27,6 +27,7 @@ from rl_agent.agent import RLAgent
 from api.webhook import router as webhook_router
 from api.execution import router as execution_router
 from signal_engine import AutoSignalEngine
+from smart_exit import SmartExitEngine
 from utils.logger import setup_logger
 from utils import telegram as tg
 from persistence import init_db, save_log_entry, load_logs, get_storage_info, load_trades, get_trade_stats, load_daily_stats
@@ -105,6 +106,7 @@ data_client: BinanceDataClient = None
 risk_engine: RiskEngine = None
 strategy_manager: StrategyManager = None
 rl_agent: RLAgent = None
+smart_exit_engine = None
 
 
 @asynccontextmanager
@@ -158,12 +160,15 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(supervised_task(risk_engine.monitor_loop,        "RiskMonitor", 15))
     asyncio.create_task(supervised_task(rl_agent.learning_loop,          "RLAgent",     20))
     asyncio.create_task(supervised_task(signal_engine.start,             "SignalEngine", 30))
+    asyncio.create_task(supervised_task(smart_exit_engine.start,         "SmartExit",   30))
 
     app.state.data_client      = data_client
     app.state.risk_engine      = risk_engine
     app.state.strategy_manager = strategy_manager
     app.state.rl_agent         = rl_agent
     app.state.signal_engine    = signal_engine
+    smart_exit_engine = SmartExitEngine(data_client, strategy_manager, settings)
+    app.state.smart_exit       = smart_exit_engine
 
     logger.info("✅ Bot hazır!")
 
@@ -276,6 +281,14 @@ async def status_overview(request: Request):
         margin_pct = _f(getattr(ds, "margin_usage_pct", None))
         max_pos    = getattr(getattr(re, "settings", None), "MAX_POSITIONS", 5)
 
+        # Smart Exit durumu
+        se_exit = {}
+        try:
+            if hasattr(request.app.state, "smart_exit"):
+                se_exit = request.app.state.smart_exit.get_status()
+        except Exception:
+            pass
+
         return {
             "ok": True,
             "balance": balance,        "wallet_balance": balance,
@@ -287,6 +300,7 @@ async def status_overview(request: Request):
             "funding_rate": funding,
             "signal_engine": se_status,
             "rl_agent": rl_info,
+            "smart_exit": se_exit,
             "risk": {"max_positions": max_pos, "margin_usage_pct": margin_pct},
         }
     except Exception as e:
@@ -472,12 +486,43 @@ async def status_agent(request: Request):
 
 @app.get("/execution/positions/live")
 async def live_positions(request: Request):
-    """Binance'den canlı pozisyonları çeker."""
+    """Binance'den canlı pozisyonlar + açık TP/SL emirleri."""
     try:
         dc = request.app.state.data_client
         if not dc.exchange or not dc._auth_ok:
             return {"ok": False, "reason": "Binance bağlı değil", "positions": []}
-        raw = await dc.exchange.fetch_positions()
+
+        # Pozisyonlar ve açık emirleri paralel çek
+        raw, open_orders_raw = await asyncio.gather(
+            dc.exchange.fetch_positions(),
+            dc.exchange.fetch_open_orders(),
+            return_exceptions=True
+        )
+        if isinstance(raw, Exception):
+            raise raw
+        open_orders_raw = [] if isinstance(open_orders_raw, Exception) else open_orders_raw
+
+        # Açık emirleri sembol bazında indexle: sym → {sl_price, tp_price}
+        order_map: dict = {}
+        for o in open_orders_raw:
+            otype = (o.get("type") or "").upper()
+            sym_o = (o.get("symbol") or "").replace("/", "").replace(":USDT", "").replace(":BUSD", "")
+            stop  = float(o.get("stopPrice") or o.get("info", {}).get("stopPrice") or 0)
+            if not stop or otype not in ("STOP_MARKET", "TAKE_PROFIT_MARKET",
+                                          "STOP", "TAKE_PROFIT",
+                                          "STOP_LOSS_LIMIT", "TAKE_PROFIT_LIMIT"):
+                continue
+            if sym_o not in order_map:
+                order_map[sym_o] = {"tp": 0.0, "sl": 0.0}
+            if otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_LIMIT"):
+                order_map[sym_o]["tp"] = max(order_map[sym_o]["tp"], stop)
+            elif otype in ("STOP_MARKET", "STOP", "STOP_LOSS_LIMIT"):
+                if order_map[sym_o]["sl"] == 0:
+                    order_map[sym_o]["sl"] = stop
+                else:
+                    # En yakın SL'yi al
+                    order_map[sym_o]["sl"] = stop
+
         positions = []
         for p in raw:
             contracts = float(p.get("contracts") or p.get("info", {}).get("positionAmt") or 0)
@@ -489,11 +534,10 @@ async def live_positions(request: Request):
             upnl   = float(p.get("unrealizedPnl") or p.get("info", {}).get("unRealizedProfit") or 0)
             lev    = int(float(p.get("leverage") or p.get("info", {}).get("leverage") or 1))
             liq    = float(p.get("liquidationPrice") or p.get("info", {}).get("liquidationPrice") or 0)
-            margin = float(p.get("initialMargin") or p.get("info", {}).get("isolatedMargin") or abs(notional / lev) if lev else 0)
-            
-            # Pozisyon yönünü birden fazla kaynaktan doğru belirle
-            pos_side_raw = (p.get("side") or p.get("positionSide") or 
-                           p.get("info", {}).get("positionSide") or "").upper()
+            margin = float(p.get("initialMargin") or p.get("info", {}).get("isolatedMargin") or (abs(notional) / lev if lev else 0))
+
+            pos_side_raw = (p.get("side") or p.get("positionSide") or
+                            p.get("info", {}).get("positionSide") or "").upper()
             if pos_side_raw in ("LONG", "SHORT"):
                 side = pos_side_raw
             elif contracts > 0:
@@ -501,27 +545,45 @@ async def live_positions(request: Request):
             elif contracts < 0:
                 side = "SHORT"
             else:
-                side = "LONG"  # fallback
-            sym    = p.get("symbol") or ""
-            # Sembol görüntüleme formatını normalize et: BTC/USDT:USDT → BTCUSDT
+                side = "LONG"
+
+            sym         = p.get("symbol") or ""
             sym_display = sym.replace("/", "").replace(":USDT", "").replace(":BUSD", "")
+
+            pnl_pct = 0.0
             if entry > 0 and mark > 0:
                 pnl_pct = ((mark - entry) / entry * 100 * lev) if side == "LONG" else ((entry - mark) / entry * 100 * lev)
-            else:
-                pnl_pct = 0.0
+
+            # TP/SL emirlerinden al; yoksa sıfır
+            em = order_map.get(sym_display, {})
+            tp_price = em.get("tp", 0.0)
+            sl_price = em.get("sl", 0.0)
+
+            # TP/SL yoksa ATR bazlı tahmini hesapla (dashboard'da -- yerine göster)
+            atr = float(getattr(getattr(dc, "state", object()), "atr_14", 0) or 0)
+            if atr > 0 and entry > 0:
+                if tp_price == 0:
+                    tp_price = (entry + atr * 2.0) if side == "LONG" else (entry - atr * 2.0)
+                if sl_price == 0:
+                    sl_price = (entry - atr * 1.5) if side == "LONG" else (entry + atr * 1.5)
+
             positions.append({
-                "symbol": sym_display,    # görüntü için (BTCUSDT)
-                "symbol_ccxt": sym,       # ccxt için (BTC/USDT:USDT)
-                "side": side,
-                "contracts": abs(contracts),
-                "notional": abs(notional),
-                "entry_price": entry,
-                "mark_price": mark,
-                "unrealized_pnl": upnl,
-                "pnl_pct": round(pnl_pct, 2),
-                "leverage": lev,
+                "symbol":           sym_display,
+                "symbol_ccxt":      sym,
+                "side":             side,
+                "contracts":        abs(contracts),
+                "notional":         abs(notional),
+                "entry_price":      entry,
+                "mark_price":       mark,
+                "unrealized_pnl":   upnl,
+                "pnl_pct":          round(pnl_pct, 2),
+                "leverage":         lev,
                 "liquidation_price": liq,
-                "margin": abs(margin),
+                "margin":           abs(margin),
+                "tp":               round(tp_price, 6),   # dashboard pos.tp
+                "sl":               round(sl_price, 6),   # dashboard pos.sl
+                "has_sl_order":     em.get("sl", 0) > 0,
+                "has_tp_order":     em.get("tp", 0) > 0,
             })
         return {"ok": True, "positions": positions, "count": len(positions)}
     except Exception as e:
