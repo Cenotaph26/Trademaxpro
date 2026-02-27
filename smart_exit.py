@@ -94,6 +94,21 @@ class SmartExitEngine:
             logger.warning(f"Smart Exit: pozisyon çekme hatası: {e}")
             return
 
+        # Artık açık olmayan pozisyonları _open_since'den temizle
+        active_syms = set()
+        for p in raw:
+            c = float(p.get("contracts") or p.get("info", {}).get("positionAmt") or 0)
+            if abs(c) > 1e-9:
+                sym = p.get("symbol", "").replace("/", "").replace(":USDT", "")
+                active_syms.add(sym)
+        stale = [k for k in list(self._open_since.keys())
+                 if k.replace("/", "").replace(":USDT", "").replace("USDT", "") not in
+                 {s.replace("USDT", "") for s in active_syms}]
+        for k in stale:
+            self._open_since.pop(k, None)
+            self._partial_done.discard(f"{k}_LONG_partial")
+            self._partial_done.discard(f"{k}_SHORT_partial")
+
         ds = self.data.state
         candles_1h = list(ds.klines_1h)
         if len(candles_1h) < 30:
@@ -192,11 +207,16 @@ class SmartExitEngine:
                     result = await self.strategy.close_position(sym, side)
                     if result and result.get("ok"):
                         logger.info(f"✅ Smart Exit kapatıldı: {sym} {side} PnL={upnl:+.2f}")
-                        # Kapatınca takipçileri temizle
                         self._open_since.pop(sym, None)
                         self._partial_done.discard(f"{sym}_{side}_partial")
+                    elif result and result.get("reason") == "zaten_kapali":
+                        logger.info(f"ℹ️ Smart Exit: {sym} zaten kapalıydı")
+                        self._open_since.pop(sym, None)
+                    elif result and result.get("qty", 1) == 0:
+                        logger.info(f"ℹ️ Smart Exit: {sym} miktar=0, kapalı")
+                        self._open_since.pop(sym, None)
                     else:
-                        logger.warning(f"❌ Smart Exit kapatma başarısız: {sym} — {result}")
+                        logger.warning(f"⚠ Smart Exit kapama: {sym} — {result}")
                 except Exception as e:
                     es = str(e)
                     if "-2022" in es or "ReduceOnly" in es:

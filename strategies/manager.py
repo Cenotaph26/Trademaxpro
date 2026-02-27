@@ -249,10 +249,19 @@ class StrategyManager:
                     break
 
             if not target:
-                return {"ok": False, "reason": f"{symbol} açık pozisyon bulunamadı"}
+                logger.warning(f"⚠ close_position: {symbol} zaten kapalı veya bulunamadı")
+                return {"ok": True, "symbol": symbol, "qty": 0, "reason": "zaten_kapali"}
 
-            contracts = float(target.get("contracts") or 0)
+            # Testnet'te contracts=0 gelebilir, info.positionAmt'a bak
+            contracts = float(
+                target.get("contracts") or
+                target.get("info", {}).get("positionAmt") or
+                target.get("contractSize") or 0
+            )
             qty = abs(contracts)
+            if qty < 1e-9:
+                logger.warning(f"⚠ close_position: {symbol} miktar=0, zaten kapalı olabilir")
+                return {"ok": True, "symbol": symbol, "qty": 0, "side": "unknown", "reason": "qty=0"}
             pos_side = "LONG" if contracts > 0 else "SHORT"
 
             result = await self.executor.close_position(symbol, pos_side, qty)
