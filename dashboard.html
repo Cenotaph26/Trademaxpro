@@ -928,19 +928,20 @@ function addLog(msg,type){
 }
 function renderLog(){
   let logs=logBuffer;
-  if(logLF2==='agent')logs=logs.filter(l=>l.level==='agent'||(l.message||'').includes('signal_engine')||(l.message||'').includes('Ajan')||(l.message||'').includes('RL')||(l.message||'').includes('tarama')||(l.message||'').includes('Otomatik'));
-  else if(logLF2==='trade')logs=logs.filter(l=>l.level==='trade'||(l.message||'').includes('islem')||(l.message||'').includes('pozisyon')||(l.message||'').toLowerCase().includes('buy')||(l.message||'').toLowerCase().includes('sell')||(l.message||'').includes('LONG')||(l.message||'').includes('SHORT'));
-  else if(logLF2==='WARNING')logs=logs.filter(l=>l.level==='WARNING'||l.level==='warn');
-  else if(logLF2==='ERROR')logs=logs.filter(l=>l.level==='ERROR'||l.level==='error');
-  const h=logs.slice(0,200).map(l=>{
-    const lv=(l.level||'').toLowerCase();
+  const f=logLF2||'all';
+  if(f==='agent')logs=logs.filter(l=>{const lv=(l.level||'').toLowerCase();const m=l.message||'';return lv==='agent'||m.includes('signal_engine')||m.includes('Ajan')||m.includes('RL')||m.includes('tarama');});
+  else if(f==='trade')logs=logs.filter(l=>{const lv=(l.level||'').toLowerCase();const m=(l.message||'').toLowerCase();return lv==='trade'||m.includes('işlem')||m.includes('long')||m.includes('short')||m.includes('açıldı')||m.includes('kapandı');});
+  else if(f==='WARNING')logs=logs.filter(l=>{const lv=(l.level||'').toLowerCase();return lv==='warn'||lv==='warning';});
+  else if(f==='ERROR')logs=logs.filter(l=>{const lv=(l.level||'').toLowerCase();return lv==='error'||lv==='critical';});
+  const h=logs.slice(0,300).map(l=>{
+    const lv=(l.level||'').toLowerCase();const m=l.message||'';
     let cls='info';
-    if(lv==='error')cls='error';
-    else if(lv==='warning'||lv==='warn')cls='warn';
-    else if(lv==='trade'||lv==='ok'||lv==='success')cls='ok';
-    else if(lv==='agent'||(l.message||'').includes('signal_engine')||(l.message||'').includes('Ajan')||(l.message||'').includes('RL')||(l.message||'').includes('DCA')||(l.message||'').includes('Otomatik'))cls='agent';
-    else if((l.message||'').toLowerCase().includes('long')||(l.message||'').toLowerCase().includes('short')||(l.message||'').toLowerCase().includes('sell')||(l.message||'').toLowerCase().includes('buy'))cls='trade';
-    return '<div class="ll '+cls+'"><span class="lt2">['+l.time+']</span><span class="lm">'+escH(l.message||'')+'</span></div>';
+    if(lv==='error'||lv==='critical')cls='error';
+    else if(lv==='warn'||lv==='warning')cls='warn';
+    else if(lv==='ok'||lv==='trade'||m.includes('AÇILDI')||m.includes('✅'))cls='ok';
+    else if(lv==='agent'||m.includes('signal_engine')||m.includes('Ajan')||m.includes('RL'))cls='agent';
+    else if(lv==='trade'||m.includes('LONG')||m.includes('SHORT')||m.includes('KAPANDI'))cls='trade';
+    return '<div class="ll '+cls+'"><span class="lt2">['+l.time+']</span><span class="lm">'+escH(m)+'</span></div>';
   }).join('');
   document.getElementById('logarea').innerHTML=h||'<div class="empty">Log bekleniyor...</div>';
 }
@@ -1188,21 +1189,74 @@ async function loadMarket(){
 }
 
 // ─── Log yükleme (bağımsız, SQLite yavaş olabilir) ────────
+let _logFirstLoad = true;
 async function loadLogsFromBackend(){
   try{
-    const logs=await apiFetch('/status/logs?limit=150');
-    if(!logs||!logs.logs||!logs.logs.length)return;
-    const seen=new Set(logBuffer.map(l=>(l.time||'')+'|'+(l.message||'')));
+    const logs=await apiFetch('/status/logs?limit=200');
+    if(!logs||!logs.logs||!logs.logs.length){
+      if(_logFirstLoad){_logFirstLoad=false;renderLog();}
+      return;
+    }
+    // Backend level normalization: INFO→info, WARNING→warn, ERROR→error
+    const normalize = lv => {
+      const l=(lv||'').toLowerCase();
+      if(l==='warning')return 'warn';
+      if(l==='error'||l==='critical')return 'error';
+      if(l==='info')return 'info';
+      return l;
+    };
+    // İlk yüklemede logBuffer'ı backend'den doldur (sayfa yenilenince geçmiş korunsun)
+    if(_logFirstLoad){
+      _logFirstLoad=false;
+      const seen=new Set();
+      const fresh=[];
+      logs.logs.forEach(l=>{
+        const k=(l.time||'')+(l.message||'').substring(0,30);
+        if(!seen.has(k)){
+          seen.add(k);
+          // Mesaj tipine göre level zenginleştir
+          const msg=l.message||'';
+          let lv=normalize(l.level);
+          if(msg.includes('✅')||msg.includes('başlatıldı')||msg.includes('hazır'))lv='ok';
+          else if(msg.includes('❌')||msg.includes('hata'))lv='error';
+          else if(msg.includes('⚠')||msg.includes('uyarı')||msg.includes('rejected'))lv='warn';
+          else if(msg.includes('signal_engine')||msg.includes('Ajan')||msg.includes('RL')||msg.includes('tarama'))lv='agent';
+          else if(msg.toLowerCase().includes('işlem')||msg.includes('LONG')||msg.includes('SHORT')||msg.includes('AÇILDI')||msg.includes('KAPANDI'))lv='trade';
+          fresh.push({time:l.time||'--:--:--',level:lv,message:msg});
+        }
+      });
+      if(fresh.length>0){
+        // Mevcut local logları koru, backend loglarını ekle
+        const localKeys=new Set(logBuffer.map(x=>(x.time||'')+(x.message||'').substring(0,30)));
+        fresh.forEach(f=>{
+          const k=(f.time||'')+(f.message||'').substring(0,30);
+          if(!localKeys.has(k)){logBuffer.push(f);localKeys.add(k);}
+        });
+        logBuffer.sort((a,b)=>(b.time||'').localeCompare(a.time||''));
+        logBuffer=logBuffer.slice(0,500);
+      }
+      renderLog();
+      return;
+    }
+    // Sonraki yüklemelerde sadece yeni logları ekle
+    const existing=new Set(logBuffer.map(l=>(l.time||'')+(l.message||'').substring(0,30)));
     let added=0;
     logs.logs.forEach(l=>{
-      const k=(l.time||'')+'|'+(l.message||'');
-      if(!seen.has(k)){seen.add(k);logBuffer.push({time:l.time,level:l.level||'INFO',message:l.message||''});added++;}
+      const k=(l.time||'')+(l.message||'').substring(0,30);
+      if(!existing.has(k)){
+        existing.add(k);
+        const msg=l.message||'';
+        let lv=normalize(l.level);
+        if(msg.includes('✅')||msg.includes('başlatıldı'))lv='ok';
+        else if(msg.includes('❌')||msg.includes('hata'))lv='error';
+        else if(msg.includes('⚠')||msg.includes('rejected'))lv='warn';
+        else if(msg.includes('signal_engine')||msg.includes('Ajan')||msg.includes('RL'))lv='agent';
+        else if(msg.toLowerCase().includes('işlem')||msg.includes('LONG')||msg.includes('SHORT'))lv='trade';
+        logBuffer.unshift({time:l.time||'--:--:--',level:lv,message:msg});
+        added++;
+      }
     });
-    if(added>0){
-      logBuffer.sort((a,b)=>(b.time||'').localeCompare(a.time||''));
-      logBuffer=logBuffer.slice(0,500);
-      renderLog();
-    }
+    if(added>0){logBuffer=logBuffer.slice(0,500);renderLog();}
   }catch(e){console.warn('Log fetch:',e);}
 }
 

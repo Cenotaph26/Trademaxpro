@@ -48,16 +48,23 @@ class _BufferHandler(logging.Handler):
 
     def emit(self, record):
         try:
-            t   = self._fmt.formatTime(record, "%H:%M:%S")
-            msg = record.getMessage()
-            if len(msg) > 500:
-                msg = msg[:497] + "..."
-            entry = {"time": t, "level": record.levelname, "message": msg, "name": record.name}
+            # Gürültülü logları filtrele
+            name = record.name or ""
+            msg  = record.getMessage()
+            if name in ("uvicorn.access", "uvicorn.error"):
+                return  # HTTP erişim logları dashboard'a gitmesin
+            if any(x in msg for x in ('"GET /', '"POST /', "HTTP/1.1", "200 OK")):
+                return  # HTTP log satırları filtrele
+            if len(msg) > 300:
+                msg = msg[:297] + "..."
+            t = self._fmt.formatTime(record, "%H:%M:%S")
+            entry = {"time": t, "level": record.levelname, "message": msg, "name": name}
             _log_buffer.append(entry)
             if len(_log_buffer) > MAX_LOGS:
                 _log_buffer.pop(0)
-            # SQLite kalici kayit
-            save_log_entry(t, record.levelname, record.name, msg)
+            # Sadece önemli logları SQLite'a yaz (INFO+ ama access değil)
+            if record.levelno >= logging.INFO:
+                save_log_entry(t, record.levelname, name, msg)
         except Exception:
             pass
 
