@@ -191,7 +191,10 @@ class OrderExecutor:
             err_str = str(e)
 
             # -2022: ReduceOnly rejected — pozisyon zaten kapalı
-            if "-2022" in err_str or ("ReduceOnly" in err_str and "rejected" in err_str):
+            if ("-2022" in err_str or 
+                "ReduceOnly Order is rejected" in err_str or
+                "reduce only order is rejected" in err_str.lower() or
+                ("reduceOnly" in err_str.lower() and "rejected" in err_str.lower())):
                 logger.warning(f"⚠ ReduceOnly rejected [{req.symbol}] — pozisyon kapalı")
                 return None
 
@@ -234,7 +237,29 @@ class OrderExecutor:
                     except Exception as e2:
                         logger.warning(f"⚠ Fallback başarısız [{req.symbol}]: {e2}")
                         return None
-                logger.warning(f"⚠ Desteklenmeyen emir [{order_type_upper}] atlandı")
+                # STOP_MARKET/STOP için emergency: piyasadan kapat
+                if order_type_upper in ("STOP_MARKET", "STOP"):
+                    try:
+                        logger.warning(f"⚠ STOP_MARKET desteklenmiyor → MARKET ile emergency kapat [{req.symbol}]")
+                        raw2 = await self.exchange.create_order(
+                            symbol=req.symbol, type="MARKET",
+                            side=req.side, amount=req.quantity,
+                            params={"reduceOnly": True},
+                        )
+                        logger.info(f"✅ Emergency MARKET kapat [{req.symbol}]")
+                        return OrderResult(
+                            order_id=str(raw2.get("id", "")),
+                            client_order_id=str(raw2.get("clientOrderId", "")),
+                            status=raw2.get("status", ""),
+                            filled_qty=float(raw2.get("filled") or 0),
+                            avg_price=float(raw2.get("average") or raw2.get("price") or 0),
+                            fee=0.0, timestamp=datetime.utcnow(),
+                            slippage_pct=0.0, raw=raw2,
+                        )
+                    except Exception as e3:
+                        logger.error(f"❌ Emergency kapat başarısız [{req.symbol}]: {e3}")
+                        return None
+                logger.warning(f"⚠ Desteklenmeyen emir [{order_type_upper}] atlandı: {err_str[:80]}")
                 return None
 
             logger.error(

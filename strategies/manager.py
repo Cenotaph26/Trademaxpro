@@ -242,9 +242,12 @@ class StrategyManager:
                 if abs(contracts) < 1e-9:
                     continue
                 psym = p.get("symbol", "")
-                psym_clean = psym.replace("/", "").replace(":USDT", "").upper()
-                sym_clean  = symbol.replace("/", "").replace(":USDT", "").upper()
-                if psym_clean == sym_clean or psym == symbol:
+                # Robust symbol matching: AVAXUSDT, AVAX/USDT:USDT, AVAX/USDT hepsi eşleşmeli
+                def _clean(s):
+                    return s.replace("/", "").replace(":USDT", "").replace(":BUSD", "").upper()
+                if (_clean(psym) == _clean(symbol) or 
+                    psym == symbol or
+                    _clean(psym).rstrip("USDT") == _clean(symbol).rstrip("USDT")):
                     target = p
                     break
 
@@ -285,8 +288,12 @@ class StrategyManager:
 
             return {"ok": result is not None, "symbol": symbol, "qty": qty, "side": pos_side}
         except Exception as e:
-            logger.error(f"close_position hatası [{symbol}]: {e}", exc_info=True)
-            return {"ok": False, "reason": str(e)}
+            err_s = str(e)
+            if "-2022" in err_s or "ReduceOnly" in err_s:
+                logger.warning(f"⚠ close_position: {symbol} zaten kapalı")
+                return {"ok": True, "symbol": symbol, "qty": 0, "reason": "zaten_kapali"}
+            logger.error(f"close_position hatası [{symbol}]: {err_s}")
+            return {"ok": False, "reason": err_s}
         finally:
             # Kapatma sonrası sayaçları güncelle
             try:

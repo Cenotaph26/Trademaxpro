@@ -101,9 +101,10 @@ class SmartExitEngine:
             if abs(c) > 1e-9:
                 sym = p.get("symbol", "").replace("/", "").replace(":USDT", "")
                 active_syms.add(sym)
-        stale = [k for k in list(self._open_since.keys())
-                 if k.replace("/", "").replace(":USDT", "").replace("USDT", "") not in
-                 {s.replace("USDT", "") for s in active_syms}]
+        def _base(sym):
+            return sym.replace("/", "").replace(":USDT", "").upper().removesuffix("USDT")
+        active_bases = {_base(s) for s in active_syms}
+        stale = [k for k in list(self._open_since.keys()) if _base(k) not in active_bases]
         for k in stale:
             self._open_since.pop(k, None)
             self._partial_done.discard(f"{k}_LONG_partial")
