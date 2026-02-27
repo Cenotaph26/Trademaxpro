@@ -283,6 +283,20 @@ class StrategyManager:
                         logger.info(f"🧠 RL reward: {reward:+.3f} (PnL=${upnl:+.2f})")
                     except Exception:
                         pass
+                # ── Trade geçmişine kaydet (bu eksikti!) ──
+                if result is not None:
+                    try:
+                        slippage = getattr(result, "slippage_pct", 0.0) if result else 0.0
+                        await self.risk.record_trade(TradeRecord(
+                            pnl=upnl,
+                            side=pos_side,
+                            strategy="close",
+                            slippage_pct=slippage,
+                            symbol=symbol,
+                        ))
+                        logger.info(f"📊 Trade kaydedildi: {symbol} {pos_side} PnL=${upnl:+.2f}")
+                    except Exception as rec_err:
+                        logger.warning(f"Trade kayıt hatası: {rec_err}")
             except Exception:
                 pass
 

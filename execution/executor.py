@@ -73,6 +73,7 @@ class OrderExecutor:
         self.settings = settings
         self._order_log: list = []
         self._market_info_cache: dict = {}
+        self._last_error: str = ""  # son hata mesajı (open_market için)
 
     async def _get_market_info(self, symbol_ccxt: str) -> dict:
         """Market filtrelerini çek ve cache'le (LOT_SIZE, MIN_NOTIONAL)."""
@@ -262,6 +263,20 @@ class OrderExecutor:
                 logger.warning(f"⚠ Desteklenmeyen emir [{order_type_upper}] atlandı: {err_str[:80]}")
                 return None
 
+            # -4148: Invalid symbol status — sembol testnet'te açık pozisyon almıyor (delisted/settlement)
+            if "-4148" in err_str or "Invalid symbol status for opening" in err_str:
+                reason = f"Bu sembol Binance testnet'te trade edilemiyor (delisted/kısıtlı)"
+                logger.error(f"❌ [{req.symbol}]: {reason}")
+                self._last_error = reason
+                return None
+
+            # -1121: Invalid symbol — sembol hiç mevcut değil
+            if "-1121" in err_str or "Invalid symbol" in err_str or "BadSymbol" in err_str:
+                reason = f"Geçersiz sembol — Binance bu sembolü tanımıyor"
+                logger.error(f"❌ [{req.symbol}]: {reason}")
+                self._last_error = reason
+                return None
+
             logger.error(
                 f"❌ Emir hatası [{req.symbol} {req.side} {order_type_upper} "
                 f"qty={req.quantity}]: {type(e).__name__}: {e}"
@@ -309,9 +324,11 @@ class OrderExecutor:
         # Ana MARKET emir
         req    = OrderRequest(symbol=symbol, side=side, order_type="MARKET",
                               quantity=adj_qty, strategy_tag=strategy_tag)
+        self._last_error = ""
         result = await self.place_order(req, expected_price=mark_price)
         if not result:
-            return {"ok": False, "reason": "MARKET emir gönderilemedi"}
+            reason = self._last_error or "MARKET emir gönderilemedi"
+            return {"ok": False, "reason": reason}
 
         # SL / TP (hata olursa loglayıp devam et)
         sl_side: Side = "SELL" if side == "BUY" else "BUY"
