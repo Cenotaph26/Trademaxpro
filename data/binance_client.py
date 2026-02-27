@@ -62,14 +62,14 @@ class BinanceDataClient:
 
         if self.settings.BINANCE_TESTNET:
             self.exchange.set_sandbox_mode(True)
-            # demo-fapi URL'lerini override et
+            # TRADE endpoint'leri demo-fapi'ye, PUBLIC (fiyat) gerçek Binance'e
             self.exchange.urls["api"] = {
-                "fapiPublic":    "https://demo-fapi.binance.com/fapi/v1",
-                "fapiPrivate":   "https://demo-fapi.binance.com/fapi/v1",
-                "fapiPublicV2":  "https://demo-fapi.binance.com/fapi/v2",
-                "fapiPrivateV2": "https://demo-fapi.binance.com/fapi/v2",
-                "public":        "https://demo-fapi.binance.com/fapi/v1",
-                "private":       "https://demo-fapi.binance.com/fapi/v1",
+                "fapiPublic":    "https://fapi.binance.com/fapi/v1",   # gerçek — fiyat verisi
+                "fapiPublicV2":  "https://fapi.binance.com/fapi/v2",   # gerçek — fiyat verisi
+                "fapiPrivate":   "https://demo-fapi.binance.com/fapi/v1",  # testnet — trade
+                "fapiPrivateV2": "https://demo-fapi.binance.com/fapi/v2",  # testnet — trade
+                "public":        "https://fapi.binance.com/fapi/v1",   # gerçek
+                "private":       "https://demo-fapi.binance.com/fapi/v1",  # testnet
             }
         try:
             await self.exchange.load_markets()
