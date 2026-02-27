@@ -286,7 +286,7 @@ header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;ba
   <div class="hctrl">
     <div class="upt" id="h-upt">00:00:00</div>
     <div class="sdot" id="sdot"></div>
-    <div class="stxt c-dim" id="stxt">BAGLANIYOR</div>
+    <div class="stxt c-dim" id="stxt">BAĞLANIYOR</div>
     <button class="btn btn-go" id="btn-start" onclick="startAgent()">&#9654; BASLAT</button>
     <button class="btn btn-stop" id="btn-stop" onclick="stopAgent()">&#9632; DURDUR</button>
   </div>
@@ -658,6 +658,9 @@ function renderCoins(){
       '<button onclick="event.stopPropagation();openTrade(\''+s+'\',\'SELL\')" style="padding:3px 0;background:rgba(255,45,85,.07);border:1px solid rgba(255,45,85,.25);border-radius:2px;color:var(--red);font-family:var(--mono);font-size:8px;font-weight:700;cursor:pointer" onmouseover="this.style.background=\'rgba(255,45,85,.18)\'" onmouseout="this.style.background=\'rgba(255,45,85,.07)\'">▼ S</button>'+
       '</div></div>';
   }).join('');
+  if(!h && Object.keys(coins).length===0){
+    h='<div class="empty" style="grid-column:1/-1;padding:40px;text-align:center"><div style="color:var(--cyan);font-size:11px;letter-spacing:2px">⏳ PİYASA VERİSİ YÜKLENİYOR...</div><div style="color:var(--dim);font-size:9px;margin-top:6px">Binance bağlantısı kuruluyor</div></div>';
+  }
   document.getElementById('cg').innerHTML=h||'<div class="empty" style="grid-column:1/-1">Coin bulunamadi</div>';
   document.getElementById('coin-lbl').textContent=entries.length+' coin';
   document.getElementById('s-coins').textContent=entries.length;
@@ -1160,27 +1163,7 @@ async function poll(){
       loadRiskSettings(ov.risk||{});
       firstPoll=false;
     }
-    // Her poll döngüsünde canlı fiyatları çek — coins objesi tamamen market verisinden gelir
-    const mkt=await apiFetch('/status/market');
-    if(mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){
-      // coins objesini TAMAMEN sıfırla ve market verisinden yeniden doldur
-      // Bu sayede eski format (price:0) coinler listede kalmaz
-      const newCoins={};
-      Object.entries(mkt.prices).forEach(([sym,d])=>{
-        newCoins[sym]={
-          price:       parseFloat(d.price)||0,
-          change:      parseFloat(d.change)||0,
-          high:        parseFloat(d.high)||0,
-          low:         parseFloat(d.low)||0,
-          quoteVolume: parseFloat(d.quoteVolume)||0,
-        };
-      });
-      // Eski coins objesini yenisiyle değiştir
-      Object.keys(coins).forEach(k=>delete coins[k]);
-      Object.assign(coins,newCoins);
-      renderCoins();
-      if(!tickerBuilt){buildTicker();}else{updateTicker();}
-    }else{updateTicker();}
+    updateTicker();  // ticker her poll'da güncelle
 
     // Positions every 3s
     if(Math.floor(Date.now()/1000)%3===0)await loadPositions();
@@ -1196,14 +1179,59 @@ async function poll(){
     const el=Math.floor((Date.now()-poll._s)/1000);
     document.getElementById('h-upt').textContent=[Math.floor(el/3600),Math.floor((el%3600)/60),el%60].map(v=>String(v).padStart(2,'0')).join(':');
 
-  }catch(e){pollErr++;if(pollErr<=3)addLog('Baglanti hatasi: '+e.message,'error');}
+  }catch(e){
+    pollErr++;
+    if(pollErr===1)addLog('⚠ Sunucu bağlantısı kuruluyor...','warn');
+    else if(pollErr===5)addLog('❌ Bağlantı hatası: '+e.message,'error');
+    // Bağlantı yok ama market verisi yüklenmişse BAGLANIYOR kalmasın
+    if(Object.keys(coins).length>0){
+      document.getElementById('stxt').textContent='VERİ YÜKLENDİ';
+      document.getElementById('stxt').className='stxt c-yellow';
+    }
+  }
 }
 
 // ═══ INIT ════════════════════════════════════════════════
-initHover();poll();loadPositions();loadSignalHistory();
+// Market fiyatlarını bağımsız olarak yükle (overview başarısız olsa bile çalışır)
+async function loadMarket(){
+  try{
+    const mkt=await apiFetch('/status/market');
+    if(mkt&&mkt.ok&&mkt.prices&&Object.keys(mkt.prices).length>0){
+      const nc={};
+      Object.entries(mkt.prices).forEach(([sym,p])=>{
+        nc[sym]={
+          price:       parseFloat(p.price)||0,
+          change:      parseFloat(p.change)||0,
+          high:        parseFloat(p.high)||0,
+          low:         parseFloat(p.low)||0,
+          quoteVolume: parseFloat(p.quoteVolume)||0,
+        };
+      });
+      Object.keys(coins).forEach(k=>delete coins[k]);
+      Object.assign(coins,nc);
+      renderCoins();
+      document.getElementById('s-coins').textContent=Object.keys(coins).length;
+      document.getElementById('coin-lbl').textContent=Object.keys(coins).length+' coin';
+      if(!tickerBuilt){buildTicker();}else{updateTicker();}
+    } else if(mkt&&!mkt.ok){
+      // Hata mesajını coin grid'e yaz
+      const reason=mkt.reason||'Bağlantı bekleniyor';
+      if(Object.keys(coins).length===0){
+        document.getElementById('cg').innerHTML='<div class="empty" style="grid-column:1/-1;padding:30px;text-align:center"><div style="color:var(--yellow);font-size:10px">⏳ '+reason+'</div></div>';
+      }
+    }
+  }catch(e){
+    if(Object.keys(coins).length===0){
+      document.getElementById('cg').innerHTML='<div class="empty" style="grid-column:1/-1;padding:30px;text-align:center"><div style="color:var(--dim);font-size:9px">Piyasa verisi yükleniyor...</div></div>';
+    }
+  }
+}
+
+initHover();poll();loadPositions();loadSignalHistory();loadMarket();
 setInterval(poll,2000);
 setInterval(loadPositions,5000);
 setInterval(loadSignalHistory,30000);
+setInterval(loadMarket,5000);  // Market verisi 5sn'de bir güncelle (poll'dan bağımsız)
 
 // Kalici trade gecmisini SQLite'den yukle (sayfa yenilemede kaybolmaz)
 async function loadPersistentHistory(){

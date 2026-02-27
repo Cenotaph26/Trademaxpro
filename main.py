@@ -161,6 +161,7 @@ async def lifespan(app: FastAPI):
     smart_exit_engine = SmartExitEngine(data_client, strategy_manager, settings)
 
     asyncio.create_task(supervised_task(data_client.stream_market_data, "MarketData", 10))
+    asyncio.create_task(_market_cache_loop())  # Piyasa fiyatları (public API)
     asyncio.create_task(supervised_task(risk_engine.monitor_loop,        "RiskMonitor", 15))
     asyncio.create_task(supervised_task(rl_agent.learning_loop,          "RLAgent",     20))
     asyncio.create_task(supervised_task(signal_engine.start,             "SignalEngine", 30))
@@ -628,15 +629,112 @@ import time as _time
 
 # Market cache (3dk TTL — Binance rate limit koruma)
 _market_cache: dict = {"prices": {}, "ts": 0}
-_MARKET_TTL = 180  # saniye
+_MARKET_TTL = 10   # saniye — daha sık güncelle
+
+# Public Binance API URL'leri (testnet değil — piyasa verisi her zaman real exchange'den)
+_MARKET_URLS = [
+    "https://fapi.binance.com/fapi/v1/ticker/24hr",
+    "https://api.binance.com/api/v3/ticker/24hr",  # fallback
+]
+
+async def _fetch_market_prices_http() -> dict:
+    """
+    Binance Futures piyasa verisi çeker.
+    Önce aiohttp ile public API, başarısız olursa ccxt ile gerçek Binance exchange'i dener.
+    """
+    # --- Yöntem 1: aiohttp ile direkt HTTP ---
+    try:
+        import aiohttp
+        for url in _MARKET_URLS:
+            try:
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=8)
+                ) as sess:
+                    async with sess.get(url) as r:
+                        if r.status != 200:
+                            continue
+                        data = await r.json(content_type=None)
+                prices = {}
+                for t in (data if isinstance(data, list) else []):
+                    sym = t.get("symbol", "")
+                    if not sym.endswith("USDT"):
+                        continue
+                    last = float(t.get("lastPrice") or t.get("last") or 0)
+                    if last <= 0:
+                        continue
+                    chg = float(t.get("priceChangePercent") or 0)
+                    prices[sym] = {
+                        "price":       last,
+                        "change":      round(chg, 4),
+                        "high":        float(t.get("highPrice") or 0),
+                        "low":         float(t.get("lowPrice") or 0),
+                        "quoteVolume": float(t.get("quoteVolume") or 0),
+                    }
+                if prices:
+                    logger.info(f"Market cache: {len(prices)} coin (HTTP/{url.split('/')[2]})")
+                    return prices
+            except Exception as e:
+                logger.debug(f"Market HTTP [{url}]: {e}")
+    except ImportError:
+        pass
+
+    # --- Yöntem 2: ccxt ile gerçek Binance (testnet değil) ---
+    try:
+        import ccxt.async_support as _ccxt_pub
+        pub_ex = _ccxt_pub.binanceusdm({
+            "options": {"defaultType": "future"},
+        })
+        # Gerçek Binance URL — sadece public ticker için
+        try:
+            tickers = await pub_ex.fetch_tickers()
+            prices = {}
+            for sym, t in tickers.items():
+                if not (sym.endswith("/USDT") or sym.endswith(":USDT")):
+                    continue
+                clean = sym.replace("/", "").replace(":USDT", "")
+                last = float(t.get("last") or t.get("close") or 0)
+                if last <= 0:
+                    continue
+                prices[clean] = {
+                    "price":       last,
+                    "change":      round(float(t.get("percentage") or 0), 4),
+                    "high":        float(t.get("high") or 0),
+                    "low":         float(t.get("low") or 0),
+                    "quoteVolume": float(t.get("quoteVolume") or 0),
+                }
+            if prices:
+                logger.info(f"Market cache: {len(prices)} coin (ccxt/real)")
+                return prices
+        finally:
+            await pub_ex.close()
+    except Exception as e:
+        logger.warning(f"Market ccxt hatası: {e}")
+
+    return {}
+
+async def _market_cache_loop():
+    """Arka planda market fiyatlarını günceller. İlk başarıya kadar 3sn, sonra 10sn."""
+    retry_interval = 3
+    while True:
+        try:
+            prices = await _fetch_market_prices_http()
+            if prices:
+                global _market_cache
+                _market_cache = {"prices": prices, "ts": _time.time()}
+                retry_interval = 10  # Başarılı olunca normal interval
+            else:
+                retry_interval = 5  # Boş döndüyse biraz bekle
+        except Exception as e:
+            logger.warning(f"Market cache loop: {e}")
+            retry_interval = 5
+        await asyncio.sleep(retry_interval)
 
 
 @app.get("/status/market")
 async def status_market(request: Request):
     """
     Tüm Binance Futures USDT çiftlerinin fiyat + değişim bilgisi.
-    Dashboard'un coin grid'ini doldurur.
-    Format: { ok: true, prices: { "BTCUSDT": { price, change, high, low, quoteVolume } } }
+    Public HTTP API kullanır — testnet bile olsa gerçek fiyatlar gelir.
     """
     global _market_cache
     now = _time.time()
@@ -646,53 +744,20 @@ async def status_market(request: Request):
         return {"ok": True, "prices": _market_cache["prices"], "cached": True,
                 "count": len(_market_cache["prices"])}
 
+    # Cache boş veya eski — HTTP ile çek (timeout 8sn, dashboard beklemesin)
     try:
-        dc = request.app.state.data_client
-        if not hasattr(dc, "exchange") or not dc.exchange:
-            return {"ok": False, "prices": {}, "reason": "exchange yok"}
-
-        # Binance fapi/v1/ticker/24hr — tüm semboller tek seferde
-        try:
-            tickers = await dc.exchange.fetch_tickers()
-        except Exception as e:
-            logger.warning(f"fetch_tickers hatası: {e}")
-            # Cache varsa eski veriyi dön
-            if _market_cache["prices"]:
-                return {"ok": True, "prices": _market_cache["prices"], "cached": True, "stale": True}
-            return {"ok": False, "prices": {}, "reason": str(e)}
-
+        prices = await asyncio.wait_for(_fetch_market_prices_http(), timeout=9.0)
+    except asyncio.TimeoutError:
         prices = {}
-        for sym, t in tickers.items():
-            # Sadece USDT perpetual futures
-            if not (sym.endswith("/USDT") or sym.endswith(":USDT")):
-                continue
-            # Sembol normalize: BTC/USDT:USDT → BTCUSDT
-            clean = sym.replace("/", "").replace(":USDT", "").replace(":BUSD", "")
-            last  = float(t.get("last")  or t.get("close") or 0)
-            chg   = float(t.get("percentage") or t.get("change") or 0)
-            high  = float(t.get("high")  or 0)
-            low   = float(t.get("low")   or 0)
-            vol   = float(t.get("quoteVolume") or t.get("baseVolume") or 0)
-            if last > 0:
-                prices[clean] = {
-                    "price":       last,
-                    "change":      round(chg, 4),
-                    "high":        high,
-                    "low":         low,
-                    "quoteVolume": vol,
-                }
-
-        if prices:
-            _market_cache = {"prices": prices, "ts": now}
-            logger.info(f"Market cache güncellendi: {len(prices)} coin")
-
+        logger.warning("Market fetch timeout")
+    if prices:
+        _market_cache = {"prices": prices, "ts": now}
         return {"ok": True, "prices": prices, "count": len(prices)}
 
-    except Exception as e:
-        logger.error(f"/status/market hatası: {e}", exc_info=True)
-        if _market_cache["prices"]:
-            return {"ok": True, "prices": _market_cache["prices"], "cached": True, "stale": True}
-        return {"ok": False, "prices": {}, "reason": str(e)}
+    # Hata — cache varsa eski veriyi dön
+    if _market_cache["prices"]:
+        return {"ok": True, "prices": _market_cache["prices"], "cached": True, "stale": True}
+    return {"ok": False, "prices": {}, "reason": "Fiyat verisi alınamadı — lütfen bekleyin"}
 
 
 @app.get("/status/signals")

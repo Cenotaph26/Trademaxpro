@@ -188,6 +188,13 @@ class OrderExecutor:
             return result
 
         except Exception as e:
+            err_str = str(e)
+            # ReduceOnly rejected = pozisyon zaten kapalı/yok — sadece uyarı
+            if "ReduceOnly" in err_str or "reduceOnly" in err_str or "-2022" in err_str:
+                logger.warning(
+                    f"⚠ ReduceOnly rejected [{req.symbol}] — pozisyon zaten kapalı olabilir"
+                )
+                return None
             logger.error(
                 f"❌ Emir hatası [{req.symbol} {req.side} {order_type_upper} "
                 f"qty={req.quantity}]: {type(e).__name__}: {e}"
