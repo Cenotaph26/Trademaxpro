@@ -188,6 +188,55 @@ class OrderExecutor:
             return result
 
         except Exception as e:
+            err_str = str(e)
+
+            # -2022: ReduceOnly rejected — pozisyon zaten kapalı
+            if "-2022" in err_str or ("ReduceOnly" in err_str and "rejected" in err_str):
+                logger.warning(f"⚠ ReduceOnly rejected [{req.symbol}] — pozisyon kapalı")
+                return None
+
+            # -4120: TAKE_PROFIT_MARKET / TRAILING_STOP_MARKET testnet Algo endpoint gerekiyor
+            if "-4120" in err_str or "Algo Order" in err_str or "not supported for this endpoint" in err_str:
+                fallback_type = None
+                fallback_params = {}
+                fallback_price = None
+                if order_type_upper in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
+                    fallback_type  = "LIMIT"
+                    fallback_price = req.stop_price or req.price
+                    fallback_params = {"timeInForce": "GTC", "reduceOnly": True}
+                elif order_type_upper == "TRAILING_STOP_MARKET":
+                    fallback_type  = "STOP_MARKET"
+                    fallback_params = {
+                        "stopPrice": req.stop_price or req.price or 0,
+                        "workingType": "CONTRACT_PRICE",
+                        "reduceOnly": True,
+                    }
+                if fallback_type and (fallback_price or fallback_params.get("stopPrice")):
+                    try:
+                        logger.warning(
+                            f"⚠ {order_type_upper} desteklenmiyor, {fallback_type} fallback [{req.symbol}]"
+                        )
+                        raw2 = await self.exchange.create_order(
+                            symbol=req.symbol, type=fallback_type,
+                            side=req.side, amount=req.quantity,
+                            price=fallback_price, params=fallback_params,
+                        )
+                        logger.info(f"✅ Fallback: {fallback_type} [{req.symbol}]")
+                        return OrderResult(
+                            order_id=str(raw2.get("id", "")),
+                            client_order_id=str(raw2.get("clientOrderId", "")),
+                            status=raw2.get("status", ""),
+                            filled_qty=float(raw2.get("filled") or 0),
+                            avg_price=float(raw2.get("average") or raw2.get("price") or 0),
+                            fee=0.0, timestamp=datetime.utcnow(),
+                            slippage_pct=0.0, raw=raw2,
+                        )
+                    except Exception as e2:
+                        logger.warning(f"⚠ Fallback başarısız [{req.symbol}]: {e2}")
+                        return None
+                logger.warning(f"⚠ Desteklenmeyen emir [{order_type_upper}] atlandı")
+                return None
+
             logger.error(
                 f"❌ Emir hatası [{req.symbol} {req.side} {order_type_upper} "
                 f"qty={req.quantity}]: {type(e).__name__}: {e}"

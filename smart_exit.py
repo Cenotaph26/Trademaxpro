@@ -177,7 +177,13 @@ class SmartExitEngine:
                             self._partial_done.add(key)
                             logger.info(f"💰 Partial TP: {sym} {side} {partial_qty:.4f} @ kâr={pnl_pct:.2f}%")
                 except Exception as e:
-                    logger.warning(f"Partial TP hatası [{sym}]: {e}")
+                    es = str(e)
+                    if "-4120" in es or "not supported for this endpoint" in es:
+                        logger.warning(f"⚠ Partial TP: {sym} testnet'te TAKE_PROFIT_MARKET desteklenmiyor, atlandı")
+                    elif "-2022" in es or "ReduceOnly" in es:
+                        logger.warning(f"⚠ Partial TP: {sym} zaten kapalı")
+                    else:
+                        logger.warning(f"Partial TP hatası [{sym}]: {e}")
 
             # ── Tam kapatma ────────────────────────────────────────
             if reason:
@@ -192,7 +198,11 @@ class SmartExitEngine:
                     else:
                         logger.warning(f"❌ Smart Exit kapatma başarısız: {sym} — {result}")
                 except Exception as e:
-                    logger.error(f"Smart Exit kapat hatası [{sym}]: {e}")
+                    es = str(e)
+                    if "-2022" in es or "ReduceOnly" in es:
+                        logger.warning(f"⚠ Smart Exit: {sym} zaten kapalı (ReduceOnly)")
+                    else:
+                        logger.error(f"Smart Exit kapat hatası [{sym}]: {e}")
 
     def get_status(self) -> dict:
         return {
