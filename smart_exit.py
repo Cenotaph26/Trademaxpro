@@ -61,14 +61,15 @@ class SmartExitEngine:
         self._partial_done: set = set()  # partial TP yapılmış pozisyonlar
 
         # Konfigürasyon
-        self.CHECK_INTERVAL     = 30     # saniye
-        self.ATR_SPIKE_MULT     = 2.2    # ATR bu kadar artarsa spike kabul edilir
+        self.CHECK_INTERVAL     = 60     # saniye (30→60: çok hızlı tetiklenmesin)
+        self.ATR_SPIKE_MULT     = 3.0    # ATR bu kadar artarsa spike (2.2→3.0: false positive azalt)
         self.PROFIT_LOCK_PCT    = 1.5    # % karda trailing stop sıkıştır (kaldıraçlı)
         self.PROFIT_LOCK_TRAIL  = 0.5    # % trailing mesafesi
         self.PARTIAL_TP_PCT     = 0.8    # hedefin %80'ine ulaşınca partial
         self.MAX_HOLD_HOURS     = 48     # max açık kalma süresi (saat)
         self.TREND_REVERSAL_EMA = True   # EMA trend dönüşünde kapat
         self.BB_SQUEEZE_EXIT    = True   # BB daralmasında zararlı pozisyonu kapat
+        self.MIN_HOLD_MINUTES   = 10     # Pozisyon en az bu kadar açık kalmadan kapanmaz
 
         # Pozisyon açılış zamanı takibi
         self._open_since: dict = {}  # symbol → datetime
@@ -141,6 +142,14 @@ class SmartExitEngine:
             if sym not in self._open_since:
                 self._open_since[sym] = datetime.now(timezone.utc)
             hold_hours = (datetime.now(timezone.utc) - self._open_since[sym]).total_seconds() / 3600
+            hold_minutes = hold_hours * 60
+
+            # ── Minimum bekleme süresi — yeni pozisyonlar erken kapanmasın ──
+            # Spread ve anlık fiyat dalgalanmaları nedeniyle pozisyon açılır açılmaz
+            # zararda görünebilir. MIN_HOLD_MINUTES geçmeden Smart Exit tetiklenmez.
+            if hold_minutes < self.MIN_HOLD_MINUTES:
+                logger.debug(f"⏳ Smart Exit bekleniyor [{sym}]: {hold_minutes:.1f}dk < min {self.MIN_HOLD_MINUTES}dk")
+                continue
 
             # PnL % (kaldıraçsız gerçek %)
             pnl_pct = 0.0
@@ -150,11 +159,14 @@ class SmartExitEngine:
             reason = None
 
             # ── Koşul 1: ATR Spike — volatilite patlaması ──────────
-            if atr_spike and pnl_pct < 0:
+            if atr_spike and pnl_pct < -1.0:
                 reason = f"ATR spike ({current_atr:.2f} > {avg_atr:.2f}x{self.ATR_SPIKE_MULT}) + zararda"
 
             # ── Koşul 2: Trend dönüşü ──────────────────────────────
-            elif self.TREND_REVERSAL_EMA and pnl_pct < -0.3:
+            # pnl_pct eşiği -0.3'ten -1.5'e yükseltildi:
+            # Yeni pozisyon spread nedeniyle hemen -0.1~0.5% zararda açılır,
+            # bu yüzden -0.3% eşiği çok düşük ve pozisyon 30-60sn içinde kapanıyordu.
+            elif self.TREND_REVERSAL_EMA and pnl_pct < -1.5:
                 if side == "LONG" and ema9 < ema21 * 0.999:
                     reason = f"Trend dönüşü: EMA9({ema9:.0f}) < EMA21({ema21:.0f}) LONG zararda"
                 elif side == "SHORT" and ema9 > ema21 * 1.001:
@@ -167,7 +179,7 @@ class SmartExitEngine:
                 reason = f"Max hold x1.5 ({hold_hours:.1f}s) — zorunlu kapat"
 
             # ── Koşul 4: BB Sıkışma + zararda ─────────────────────
-            elif self.BB_SQUEEZE_EXIT and bb_width < 0.015 and pnl_pct < -1.0:
+            elif self.BB_SQUEEZE_EXIT and bb_width < 0.015 and pnl_pct < -2.0:
                 reason = f"BB sıkışma ({bb_width:.3f}) + zararda ({pnl_pct:.2f}%)"
 
             # ── Koşul 5: Profit Lock ───────────────────────────────

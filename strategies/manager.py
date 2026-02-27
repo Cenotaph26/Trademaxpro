@@ -197,6 +197,7 @@ class StrategyManager:
             if result and (isinstance(result, dict) and result.get("ok", True)):
                 await self.risk.record_trade(TradeRecord(
                     pnl=0.0,          # Açılışta PnL 0, kapanışta gerçek PnL güncellenir
+                    timestamp=datetime.utcnow(),
                     side=side,
                     strategy=signal.get("strategy_tag", "open"),
                     slippage_pct=float(result.get("slippage_pct", 0)) if isinstance(result, dict) else 0.0,
@@ -303,6 +304,7 @@ class StrategyManager:
                         slippage = getattr(result, "slippage_pct", 0.0) if result else 0.0
                         await self.risk.record_trade(TradeRecord(
                             pnl=upnl,
+                            timestamp=datetime.utcnow(),
                             side=pos_side,
                             strategy="close",
                             slippage_pct=slippage,
