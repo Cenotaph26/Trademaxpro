@@ -18,6 +18,16 @@ logger = logging.getLogger(__name__)
 
 Side = Literal["BUY", "SELL"]
 
+# Binance Futures'ta TradFi anlaşması veya özel izin gerektiren semboller
+# -4411: "Please sign TradFi-Perps agreement"
+# Bu semboller market grid'de görünür ama trade edilemez
+TRADFI_BLACKLIST = frozenset({
+    "XAGUSDT", "XAUUSDT",          # Emtia: Gümüş, Altın
+    "BTCDOMUSDT", "DEFIUSDT",       # Endeksler
+    "NIFTYUSDT", "NIFTYFUTURES",    # Hindistan borsası
+    "1000LUNCBUSD",                  # Eski semboller
+})
+
 
 @dataclass
 class OrderRequest:
@@ -90,15 +100,19 @@ class OrderExecutor:
                     step_size = 10 ** (-int(amount_prec))
                 except Exception:
                     step_size = 0.001
+            # Binance Futures min notional: 100 USDT (-4164 hatası önleme)
+            # ccxt bazen 5.0 döndürür ama gerçek minimum 100 USDT
+            raw_notional = float(limits.get("cost", {}).get("min") or 0)
+            min_notional  = max(raw_notional, 100.0)
             info = {
                 "step_size":    float(step_size or 0.001),
                 "min_qty":      float(limits.get("amount", {}).get("min") or 0),
-                "min_notional": float(limits.get("cost", {}).get("min") or 5.0),
+                "min_notional": min_notional,
                 "max_qty":      float(limits.get("amount", {}).get("max") or 1e9),
             }
         except Exception as e:
             logger.debug(f"Market info alınamadı [{symbol_ccxt}]: {e}")
-            info = {"step_size": 0.001, "min_qty": 0, "min_notional": 5.0, "max_qty": 1e9}
+            info = {"step_size": 0.001, "min_qty": 0, "min_notional": 100.0, "max_qty": 1e9}
         self._market_info_cache[symbol_ccxt] = info
         return info
 
@@ -129,6 +143,14 @@ class OrderExecutor:
     async def place_order(self, req: OrderRequest, expected_price: Optional[float] = None) -> Optional[OrderResult]:
         """Ana emir gönderme — Binance Futures uyumlu parametreler."""
         req.symbol = _fmt_symbol(req.symbol)
+
+        # TradFi / blacklisted sembol kontrolü
+        sym_clean = req.symbol.replace("/", "").replace(":USDT", "").replace(":BUSD", "").upper()
+        if sym_clean in TRADFI_BLACKLIST:
+            reason = f"Bu sembol TradFi anlaşması gerektiriyor ve trade edilemiyor ({sym_clean})"
+            logger.error(f"❌ [{req.symbol}]: {reason}")
+            self._last_error = reason
+            return None
 
         # Binance Futures parametreleri
         params = {}
@@ -261,6 +283,47 @@ class OrderExecutor:
                         logger.error(f"❌ Emergency kapat başarısız [{req.symbol}]: {e3}")
                         return None
                 logger.warning(f"⚠ Desteklenmeyen emir [{order_type_upper}] atlandı: {err_str[:80]}")
+                return None
+
+            # -4164: Notional too small on reduce_only — testnet'te reduceOnly parametresi
+            # bazen "closePosition: true" olarak gönderilmesi gerekiyor
+            if "-4164" in err_str or "notional must be no smaller than 100" in err_str:
+                if req.reduce_only:
+                    # Fallback: closePosition parametresiyle dene
+                    try:
+                        logger.warning(f"⚠ -4164 reduce_only → closePosition fallback [{req.symbol}]")
+                        fallback_params = {"closePosition": True}
+                        if req.stop_price:
+                            fallback_params["stopPrice"] = req.stop_price
+                        raw2 = await self.exchange.create_order(
+                            symbol=req.symbol, type=order_type_upper,
+                            side=req.side, amount=req.quantity,
+                            params=fallback_params,
+                        )
+                        logger.info(f"✅ closePosition fallback başarılı [{req.symbol}]")
+                        return OrderResult(
+                            order_id=str(raw2.get("id", "")),
+                            client_order_id=str(raw2.get("clientOrderId", "")),
+                            status=raw2.get("status", ""),
+                            filled_qty=float(raw2.get("filled") or 0),
+                            avg_price=float(raw2.get("average") or raw2.get("price") or 0),
+                            fee=0.0, timestamp=datetime.utcnow(),
+                            slippage_pct=0.0, raw=raw2,
+                        )
+                    except Exception as e4:
+                        logger.warning(f"⚠ closePosition fallback başarısız [{req.symbol}]: {e4}")
+                        return None
+                else:
+                    reason = f"Emir notional çok küçük (min 100 USDT gerekli)"
+                    logger.error(f"❌ [{req.symbol}]: {reason}")
+                    self._last_error = reason
+                    return None
+
+            # -4411: TradFi anlaşması gerekiyor (XAG, XAU gibi emtia)
+            if "-4411" in err_str or "TradFi-Perps agreement" in err_str or "TradFi" in err_str:
+                reason = f"Bu sembol TradFi anlaşması gerektiriyor (XAG/XAU gibi emtia)"
+                logger.error(f"❌ [{req.symbol}]: {reason}")
+                self._last_error = reason
                 return None
 
             # -4148: Invalid symbol status — sembol testnet'te açık pozisyon almıyor (delisted/settlement)

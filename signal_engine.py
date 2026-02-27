@@ -229,7 +229,7 @@ class AutoSignalEngine:
         self._batch_size = 5
 
         # Minimum sinyal skoru (dashboard'dan override edilebilir)
-        self.min_signal_score = 0.12
+        self.min_signal_score = 0.10  # 0.12 → 0.10: daha fazla işlem fırsatı
 
         self._last_scan_time = None
 
@@ -290,8 +290,21 @@ class AutoSignalEngine:
 
     # ─────────────────────────────────────────────────────────────
 
+    # Binance testnet'te açılamayan semboller (TradFi anlaşması veya delisted)
+    _SCAN_BLACKLIST = frozenset({
+        "XAGUSDT", "XAUUSDT",       # TradFi emtia
+        "BTCDOMUSDT", "DEFIUSDT",   # Endeksler
+        "ROBO", "ROBOUSDT",         # Delisted
+    })
+
     async def _scan_and_trade(self, symbol: str):
         ds = self.data.state
+
+        # TradFi / delisted sembol kontrolü
+        sym_upper = symbol.upper()
+        if sym_upper in self._SCAN_BLACKLIST:
+            logger.debug(f"[{symbol}] Blacklist'te — tarama atlandı")
+            return
 
         # Binance bağlantısı kontrolü
         if not getattr(self.data, "exchange", None):
@@ -493,7 +506,7 @@ class AutoSignalEngine:
             "timeframe":    "1h",
             "strategy_tag": decision_strategy.lower(),
             "entry_hint":   current_price,
-            "quantity":     100,          # 100 USDT (leverage'sız notional)
+            "quantity":     150,          # 150 USDT — min 100 USDT notional garantisi için buffer
             "sl_pct":       1.5,          # %1.5 stop loss
             "tp_pct":       3.0,          # %3.0 take profit
             "leverage":     getattr(self.s, "BASE_LEVERAGE", 3),

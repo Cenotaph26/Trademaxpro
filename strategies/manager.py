@@ -192,6 +192,20 @@ class StrategyManager:
         # Pozisyon sayılarını güncelle
         await self._update_position_counts(symbol)
 
+        # Trade geçmişine kaydet (açılış kaydı — PnL henüz 0)
+        try:
+            if result and (isinstance(result, dict) and result.get("ok", True)):
+                await self.risk.record_trade(TradeRecord(
+                    pnl=0.0,          # Açılışta PnL 0, kapanışta gerçek PnL güncellenir
+                    side=side,
+                    strategy=signal.get("strategy_tag", "open"),
+                    slippage_pct=float(result.get("slippage_pct", 0)) if isinstance(result, dict) else 0.0,
+                    symbol=symbol,
+                ))
+                logger.info(f"📊 Trade açılış kaydedildi: {symbol} {side} @ {mark:.4g}")
+        except Exception as rec_e:
+            logger.warning(f"Trade açılış kayıt hatası: {rec_e}")
+
         # Telegram bildirimi
         if result is not None:
             try:

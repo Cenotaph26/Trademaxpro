@@ -639,10 +639,18 @@ function updateTicker(){
 // ═══ COINS ═══════════════════════════════════════════════
 let sortMode2='change';
 function setSortMode(m,btn){sortMode2=m;document.querySelectorAll('.sb').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderCoins();}
+// Binance testnet'te trade edilemeyen semboller (TradFi/delisted)
+const COIN_BLACKLIST=new Set(['XAGUSDT','XAUUSDT','BTCDOMUSDT','DEFIUSDT','ROBOUSDT',
+  'NIFTYUSDT','1000BONKUSDT','STABLEUSDT','ETHBTC']);
+
 function renderCoins(){
   const q=(document.getElementById('csrch')?.value||'').toUpperCase();
   const pos=new Set(Object.keys(positions));
-  let entries=Object.entries(coins).filter(([s])=>s.replace('USDT','').replace(':USDT','').includes(q));
+  let entries=Object.entries(coins).filter(([s])=>{
+    const sym=s.replace(':USDT','').replace('USDT','');
+    if(COIN_BLACKLIST.has(s)||COIN_BLACKLIST.has(sym+'USDT'))return false;
+    return sym.includes(q);
+  });
   if(sortMode2==='change')entries.sort((a,b)=>Math.abs(b[1].change||0)-Math.abs(a[1].change||0));
   else if(sortMode2==='volume')entries.sort((a,b)=>(b[1].quoteVolume||0)-(a[1].quoteVolume||0));
   else if(sortMode2==='gainer')entries=entries.filter(([,c])=>(c.change||0)>0).sort((a,b)=>(b[1].change||0)-(a[1].change||0));
@@ -1016,6 +1024,12 @@ async function loadSignalHistory(){
 let _tradeSym='', _tradeSide='BUY', _tradeLev=1;
 
 function openTrade(sym, side){
+  // TradFi/delisted sembol kontrolü
+  const symClean=(sym||'').replace(':USDT','').replace('/','');
+  if(COIN_BLACKLIST.has(symClean+'USDT')||COIN_BLACKLIST.has(symClean)){
+    addLog('❌ '+symClean+' Binance testnet\'te trade edilemiyor (TradFi/delisted)','error');
+    return;
+  }
   _tradeSym=sym;
   const label=sym.replace(':USDT','').replace('USDT','');
   const c=coins[sym]||{};
