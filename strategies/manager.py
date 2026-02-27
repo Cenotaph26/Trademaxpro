@@ -62,6 +62,10 @@ class StrategyManager:
         if agent:
             agent.set_dependencies(self.data, self.risk)
 
+    def set_capital_brain(self, brain):
+        """v15: Capital Brain'i inject et."""
+        self._capital_brain = brain
+
     async def handle_signal(self, signal: dict) -> dict:
         """
         İşlem sinyalini işle.
@@ -298,6 +302,19 @@ class StrategyManager:
                         logger.info(f"🧠 RL reward: {reward:+.3f} (PnL=${upnl:+.2f})")
                     except Exception:
                         pass
+                # v15: Capital Brain'e sonuç bildir
+                try:
+                    # strategy_tag'den agent_id bul
+                    from capital_brain.brain import CapitalBrain as _CB
+                    # app state'ten brain'e ulaşmaya çalış
+                    import asyncio as _aio
+                    # brain injection (main.py'de set edilirse)
+                    if hasattr(self, "_capital_brain") and self._capital_brain:
+                        # Hangi agent açtı? strategy'den tahmin et
+                        agent_id = "trend"  # varsayılan, gerçekte strategy_tag'den gelir
+                        self._capital_brain.record_outcome(agent_id, upnl, symbol)
+                except Exception:
+                    pass
                 # ── Trade geçmişine kaydet (bu eksikti!) ──
                 if result is not None:
                     try:

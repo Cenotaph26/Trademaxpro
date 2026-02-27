@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     RL_BATCH_SIZE: int = Field(default=64, env="RL_BATCH_SIZE")
     RL_UPDATE_EVERY: int = Field(default=100, env="RL_UPDATE_EVERY")  # her N adımda train
 
+    # ── v15: Capital Brain ────────────────────────────────────────
+    BRAIN_MAX_TOTAL_RISK_PCT: float = Field(default=0.20, env="BRAIN_MAX_TOTAL_RISK_PCT")  # Toplam pozisyon bütçesi
+    BRAIN_MIN_ALLOCATION_USDT: float = Field(default=110.0, env="BRAIN_MIN_ALLOCATION_USDT")
+    BRAIN_PAUSE_SCORE: float = Field(default=0.40, env="BRAIN_PAUSE_SCORE")
+    BRAIN_BAN_CONSEC_LOSSES: int = Field(default=4, env="BRAIN_BAN_CONSEC_LOSSES")
+    GOVERNOR_MAX_HOURLY_TRADES: int = Field(default=12, env="GOVERNOR_MAX_HOURLY_TRADES")
+    GOVERNOR_ATR_SPIKE_MULT: float = Field(default=3.5, env="GOVERNOR_ATR_SPIKE_MULT")
+
     # ── Funding Filter ────────────────────────────────────────────
     FUNDING_EXTREME_THRESHOLD: float = Field(default=0.01, env="FUNDING_EXTREME_THRESHOLD")  # %1
 

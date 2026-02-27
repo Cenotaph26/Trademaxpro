@@ -24,6 +24,11 @@ from data.binance_client import BinanceDataClient
 from risk.engine import RiskEngine
 from strategies.manager import StrategyManager
 from rl_agent.agent import RLAgent
+# ── v15: Capital Brain Architecture ──────────────────────────────────────────
+from capital_brain.brain import CapitalBrain
+from capital_brain.governor import RiskGovernor
+from agents.specialists import TrendAgent, MeanRevAgent, ScalpAgent, MacroAgent
+from agents.meta_rl import RLMetaController
 from api.webhook import router as webhook_router
 from api.execution import router as execution_router
 from signal_engine import AutoSignalEngine
@@ -114,11 +119,16 @@ risk_engine: RiskEngine = None
 strategy_manager: StrategyManager = None
 rl_agent: RLAgent = None
 smart_exit_engine = None
+# v15 components
+capital_brain: CapitalBrain = None
+risk_governor: RiskGovernor = None
+meta_rl: RLMetaController = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global data_client, risk_engine, strategy_manager, rl_agent
+    global capital_brain, risk_governor, meta_rl
 
     logger.info("🚀 Trading Bot başlatılıyor...")
 
@@ -138,6 +148,40 @@ async def lifespan(app: FastAPI):
         logger.warning(f"RL model yüklenemedi: {e}")
 
     strategy_manager.set_rl_agent(rl_agent)
+
+    # ── v15: Capital Brain Architecture ──────────────────────────────────────
+    logger.info("🧠 Capital Brain mimarisi başlatılıyor...")
+
+    # Risk Governor — tüm trade'lere veto yetkisi
+    risk_governor = RiskGovernor(risk_engine, data_client, settings)
+
+    # Capital Brain — kapital allokasyon merkezi
+    capital_brain = CapitalBrain(data_client, risk_governor, settings)
+
+    # Specialist Agent'ları kaydet (base allokasyon: her biri %25)
+    capital_brain.register_agent("trend",   "Trend Agent",           base_pct=0.25)
+    capital_brain.register_agent("meanrev", "Mean Reversion Agent",  base_pct=0.25)
+    capital_brain.register_agent("scalp",   "Scalp Agent",           base_pct=0.20)
+    capital_brain.register_agent("macro",   "Macro Agent",           base_pct=0.30)
+
+    # Meta-RL Controller — agent ağırlıklarını öğrenir
+    meta_rl = RLMetaController(settings)
+    meta_rl.set_dependencies(data_client, risk_engine, capital_brain)
+    try:
+        await meta_rl.load_model()
+    except Exception as e:
+        logger.warning(f"Meta-RL model yüklenemedi: {e}")
+
+    # Specialist Agent örnekleri
+    agent_instances = [
+        TrendAgent(data_client, capital_brain, strategy_manager, settings),
+        MeanRevAgent(data_client, capital_brain, strategy_manager, settings),
+        ScalpAgent(data_client, capital_brain, strategy_manager, settings),
+        MacroAgent(data_client, capital_brain, strategy_manager, settings),
+    ]
+
+    strategy_manager.set_capital_brain(capital_brain)
+    logger.info("✅ Capital Brain hazır — 4 specialist agent aktif")
 
     signal_engine = AutoSignalEngine(
         data_client, strategy_manager, risk_engine, rl_agent, settings
@@ -173,6 +217,12 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(supervised_task(rl_agent.learning_loop,          "RLAgent",     20))
     asyncio.create_task(supervised_task(signal_engine.start,             "SignalEngine", 30))
     asyncio.create_task(supervised_task(smart_exit_engine.start,         "SmartExit",   30))
+    # v15 tasks
+    asyncio.create_task(supervised_task(capital_brain.start,             "CapitalBrain", 20))
+    asyncio.create_task(supervised_task(meta_rl.learning_loop,           "MetaRL",       30))
+    for agent_inst in agent_instances:
+        asyncio.create_task(supervised_task(agent_inst.start,
+                                            agent_inst.NAME, 60))
 
     app.state.data_client      = data_client
     app.state.risk_engine      = risk_engine
@@ -180,6 +230,11 @@ async def lifespan(app: FastAPI):
     app.state.rl_agent         = rl_agent
     app.state.signal_engine    = signal_engine
     app.state.smart_exit       = smart_exit_engine
+    # v15
+    app.state.capital_brain    = capital_brain
+    app.state.risk_governor    = risk_governor
+    app.state.meta_rl          = meta_rl
+    app.state.agent_instances  = agent_instances
 
     logger.info("✅ Bot hazır!")
 
@@ -300,6 +355,20 @@ async def status_overview(request: Request):
         except Exception:
             pass
 
+        # v15: Capital Brain + Governor + Meta-RL durumu
+        brain_status = {}
+        governor_status = {}
+        meta_rl_status = {}
+        try:
+            if hasattr(request.app.state, "capital_brain"):
+                brain_status = request.app.state.capital_brain.get_status()
+            if hasattr(request.app.state, "risk_governor"):
+                governor_status = request.app.state.risk_governor.get_status()
+            if hasattr(request.app.state, "meta_rl"):
+                meta_rl_status = request.app.state.meta_rl.get_status()
+        except Exception:
+            pass
+
         return {
             "ok": True,
             "balance": balance,        "wallet_balance": balance,
@@ -313,6 +382,11 @@ async def status_overview(request: Request):
             "rl_agent": rl_info,
             "smart_exit": se_exit,
             "risk": {"max_positions": max_pos, "margin_usage_pct": margin_pct},
+            # v15
+            "capital_brain": brain_status,
+            "governor": governor_status,
+            "meta_rl": meta_rl_status,
+            "version": "v15",
         }
     except Exception as e:
         logger.error(f"/status/overview: {e}", exc_info=True)
